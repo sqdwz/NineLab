@@ -21,7 +21,7 @@ const clueOf = (id: FieldId) => registerClues.find((item) => item.field === id)
 
 <template>
   <header class="page-head action-head">
-    <div><h1>电池读取</h1><p>{{ demo ? '演示会话 · 所有车辆参数来自模拟器。' : '核对设备实读值、来源与参数含义。' }}</p></div>
+    <div><h1>电池读取</h1><p v-if="demo">演示模式</p></div>
     <div class="button-row">
       <button class="button secondary" :disabled="!demo && !connected" :aria-pressed="polling" @click="emit('togglePolling')">
         <Pause v-if="polling" :size="17" aria-hidden="true" /><Play v-else :size="17" aria-hidden="true" />

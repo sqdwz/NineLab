@@ -47,7 +47,7 @@ function backupExport(backup: Backup) {
 </script>
 
 <template>
-  <header class="page-head"><h1>电池校准</h1><p>核对当前参数、目标差异和原始备份。</p></header>
+  <header class="page-head"><h1>电池校准</h1></header>
   <section v-if="!snapshot" class="card locked-card">
     <span class="icon-box"><LockKeyhole :size="24" aria-hidden="true" /></span>
     <h2>实车校准待验证</h2>

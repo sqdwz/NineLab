@@ -60,7 +60,7 @@ function download() {
 </script>
 
 <template>
-  <header class="page-head"><h1>通信诊断</h1><p>查看当前会话的蓝牙服务、通信记录与寄存器来源。</p></header>
+  <header class="page-head"><h1>通信诊断</h1><p v-if="demo">演示模式</p></header>
   <section class="card">
     <div class="section-top"><h2>GATT 服务</h2><span class="pill">{{ services.length }} 个可见服务</span></div>
     <p v-if="services.length && !connected">上次连接的服务记录。</p>

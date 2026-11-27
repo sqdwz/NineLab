@@ -83,7 +83,7 @@ function refresh() {
   else void live.read()
 }
 function openReading() {
-  navigate('read')
+  navigate('read', true)
   if (demo.value || !Object.keys(readings.value).length) refresh()
 }
 
@@ -191,10 +191,6 @@ onUnmounted(() => {
       </nav>
     </aside>
     <div class="workspace">
-      <div class="workspace-status" aria-live="polite">
-        <span class="pill" :class="demo ? 'amber' : connected ? 'green' : ''"><span class="dot"></span>
-          {{ demo ? '演示模式' : connected ? '蓝牙已连接 · 未认证' : '本地工作台' }}</span>
-      </div>
       <main ref="main" tabindex="-1" class="page-frame">
         <ConnectionView v-if="page === 'connection'" :connection="live.data" :capabilities="capabilities" :demo="demo"
           @connect="live.connect" @retry="live.retry" @disconnect="disconnect" @demo="showDemo" @read="openReading" />
