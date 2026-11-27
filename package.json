@@ -1,0 +1,33 @@
+{
+  "name": "ninelab",
+  "version": "0.1.0",
+  "description": "NineLab 本地 BLE 电池工作台",
+  "scripts": {
+    "test": "vitest run",
+    "dev": "vite",
+    "build": "vue-tsc --noEmit && vite build",
+    "check": "vue-tsc --noEmit",
+    "preview": "vite preview",
+    "test:ui": "playwright test"
+  },
+  "type": "module",
+  "dependencies": {
+    "@lucide/vue": "^1.81.0",
+    "vue": "^3.5.46"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.65.1",
+    "@types/node": "^26.6.11",
+    "@types/web-bluetooth": "^0.0.22",
+    "@vitejs/plugin-vue": "^6.0.11",
+    "fake-indexeddb": "^6.2.8",
+    "typescript": "^6.0.3",
+    "vite": "^8.4.0",
+    "vitest": "^4.1.12",
+    "vue-tsc": "^3.3.14"
+  },
+  "private": true,
+  "engines": {
+    "node": "^22.12.0 || >=24.0.0"
+  }
+}
