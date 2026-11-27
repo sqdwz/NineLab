@@ -1,13 +1,13 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { KeyRound } from '@lucide/vue'
-import { isAuthorizing } from '../stores/connection'
 import type { AuthState } from '../stores/connection'
 
 const props = defineProps<{
   available: boolean
   state: AuthState
   message: string
+  unavailableMessage: string
   hasGeneratedKey: boolean
   canStart: boolean
   revealKey: () => string
@@ -17,7 +17,6 @@ const password = ref<HTMLInputElement>()
 const confirmed = ref(false)
 const visibleKey = ref('')
 const keyOutput = ref<HTMLInputElement>()
-const busy = computed(() => isAuthorizing(props.state))
 const canGenerate = computed(() => !props.hasGeneratedKey && props.state !== 'key-required')
 const step = computed(() => {
   if (props.state === 'checking') return '正在确认车辆配对状态…'
@@ -52,6 +51,7 @@ async function copyKey() {
 watch(() => props.hasGeneratedKey, (available) => { if (!available) visibleKey.value = '' })
 watch(() => props.available, (available) => {
   if (!available) {
+    if (password.value) password.value.value = ''
     confirmed.value = false
     visibleKey.value = ''
   }
@@ -62,7 +62,8 @@ watch(() => props.available, (available) => {
   <section class="vehicle-auth" aria-labelledby="vehicle-auth-title">
     <h3 id="vehicle-auth-title" class="section-label"><KeyRound :size="19" aria-hidden="true" /> 车辆配对与认证</h3>
     <p v-if="step" class="notice" role="status">{{ step }}</p>
-    <template v-if="available && state !== 'ready' && !busy">
+    <p v-else-if="!available" class="footnote">{{ unavailableMessage }}</p>
+    <div v-if="state !== 'ready'" class="auth-methods">
       <form class="auth-form" autocomplete="off" @submit.prevent="useExisting">
         <label for="vehicle-key">已有配对密钥</label>
         <div class="auth-input-row">
@@ -70,20 +71,20 @@ watch(() => props.available, (available) => {
             spellcheck="false" maxlength="128" placeholder="十六进制密钥" required :disabled="!canStart" />
           <button type="submit" class="button secondary" :disabled="!canStart">使用密钥认证</button>
         </div>
+        <button v-if="hasGeneratedKey" type="button" class="button secondary auth-reuse" :disabled="!canStart"
+          @click="emit('authenticate')">使用本次生成的密钥</button>
       </form>
-      <button v-if="hasGeneratedKey" type="button" class="button secondary auth-reuse" :disabled="!canStart"
-        @click="emit('authenticate')">使用本次生成的密钥</button>
-      <details v-if="canGenerate" class="auth-enroll">
-        <summary>生成临时密钥</summary>
-        <p>仅用于车端未保存密钥的车辆。车端可能保存新密钥，原有 App 连接可能需要重新绑定。</p>
-        <label class="check-row"><input v-model="confirmed" type="checkbox" :disabled="!canStart" />
+      <div class="auth-enroll">
+        <h4>生成临时密钥</h4>
+        <p class="footnote">用于车端未保存密钥的车辆。配对后原有 App 连接可能需要重新绑定。</p>
+        <label class="check-row"><input v-model="confirmed" type="checkbox" :disabled="!canStart || !canGenerate" />
           我有权操作此车，并已了解配对影响
         </label>
-        <button type="button" class="button primary" :disabled="!canStart || !confirmed" @click="generate">
+        <button type="button" class="button primary" :disabled="!canStart || !canGenerate || !confirmed" @click="generate">
           生成密钥并配对
         </button>
-      </details>
-    </template>
+      </div>
+    </div>
     <div v-if="hasGeneratedKey" class="auth-secret">
       <p class="footnote">生成的密钥保留在本页内存。是否配对成功以车辆反馈为准。刷新前可按需查看并自行保管。</p>
       <div class="button-row auth-secret-actions">
@@ -100,8 +101,10 @@ watch(() => props.available, (available) => {
 
 <style scoped>
 .vehicle-auth { margin-top: 18px; border-top: 1px solid var(--border); padding-top: 16px; }
-.auth-form { display: grid; gap: 6px; margin-top: 12px; }
-.auth-form label { font-size: .9rem; font-weight: 650; }
+.auth-methods { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 250px), 1fr)); gap: 10px; margin-top: 12px; }
+.auth-form, .auth-enroll { min-width: 0; padding: 12px; border: 1px solid var(--border); border-radius: 10px; }
+.auth-form label, .auth-enroll h4 { display: block; margin: 0 0 6px; font-size: .93rem; font-weight: 650; }
+.auth-enroll p { color: var(--muted); }
 .auth-input-row { display: flex; flex-wrap: wrap; gap: 8px; }
 .auth-input-row input, .auth-output {
   min-width: 0;
@@ -114,6 +117,6 @@ watch(() => props.available, (available) => {
 }
 .auth-input-row input { flex: 1 1 172px; max-width: 300px; }
 .auth-output { display: block; width: min(100%, 32rem); margin-top: 8px; font-family: ui-monospace, monospace; }
-.auth-enroll, .auth-reuse, .auth-secret { margin-top: 12px; }
+.auth-reuse, .auth-secret { margin-top: 12px; }
 .auth-secret-actions { margin-top: 8px; }
 </style>

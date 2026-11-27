@@ -13,8 +13,9 @@ test('四个区块同页滚动，导航和返回键可定位', async ({ page, is
   await expect(connection).toBeInViewport()
   await expect(page.locator('main > .flow-section')).toHaveCount(4)
   await expect(nav).toHaveCSS('position', isMobile ? 'fixed' : 'static')
-  await page.getByText('连接引导', { exact: true }).click()
-  await expect(page.locator('.connection-guide')).toHaveAttribute('open', '')
+  const guide = page.getByRole('region', { name: '连接引导' })
+  await expect(guide.getByRole('listitem')).toHaveCount(4)
+  await expect(guide.getByText('连接蓝牙', { exact: true })).toBeVisible()
   await page.evaluate(() => document.getElementById('read')?.scrollIntoView())
   await expect(page.getByRole('heading', { name: '电池读取' })).toBeInViewport()
   await expect(nav.getByRole('link', { name: '读取' })).toHaveAttribute('aria-current', 'location')
@@ -22,7 +23,7 @@ test('四个区块同页滚动，导航和返回键可定位', async ({ page, is
   await expect(page).toHaveURL(/#calibration$/)
   await expect(page.getByRole('heading', { name: '实车校准待验证' })).toBeInViewport()
   await expect(page.getByRole('button', { name: '预览并确认' })).toHaveCount(0)
-  await expect(page.locator('.connection-guide')).toHaveAttribute('open', '')
+  await expect(guide).toBeVisible()
   await page.goBack()
   await expect(page.getByRole('heading', { name: '电池读取' })).toBeInViewport()
   await expect(nav.getByRole('link', { name: '读取' })).toHaveAttribute('aria-current', 'location')
@@ -150,7 +151,10 @@ test('通过浏览器 GATT 接口读取标准电量，且诊断保留发现记�
       connect: async () => { server.connected = true; return server },
       disconnect: () => { server.connected = false; battery.dispatchEvent(new Event('gattserverdisconnected')) },
       getPrimaryServices: async () => [remoteService],
-      getPrimaryService: async () => remoteService,
+      getPrimaryService: async (requested: string) => {
+        if (requested !== remoteService.uuid) throw new DOMException('Service not present', 'NotFoundError')
+        return remoteService
+      },
     }
     const device = Object.assign(battery, { name: 'Ninebot 测试外围设备', gatt: server })
     Object.defineProperty(navigator, 'bluetooth', {
@@ -159,11 +163,14 @@ test('通过浏览器 GATT 接口读取标准电量，且诊断保留发现记�
     })
   })
   await page.goto('/')
-  await page.getByText('连接引导', { exact: true }).click()
   const guide = page.locator('.connection-guide')
   if (isMobile) await page.getByLabel('蓝牙筛选').selectOption('nearby')
   await page.getByRole('button', { name: '搜索蓝牙设备' }).click()
   await expect(guide.getByRole('listitem').last()).toHaveAttribute('aria-current', 'step')
+  const auth = page.getByRole('region', { name: '车辆配对与认证' })
+  await expect(auth).toContainText('当前设备未发现九号配对通道')
+  await expect(auth.getByRole('button', { name: '使用密钥认证' })).toBeDisabled()
+  await expect(auth.getByRole('button', { name: '生成密钥并配对' })).toBeDisabled()
   await page.getByRole('button', { name: '查看标准字段' }).click()
   await expect(page.getByRole('progressbar', { name: '标准 BLE 电量' })).toHaveAttribute('value', '54')
   await expect(page.getByRole('heading', { name: '电池电压' }).locator('..')).toContainText('待实车验证')
@@ -187,20 +194,16 @@ test('离线候选帧可解释，错误长度不产生读数', async ({ page }) 
   await expect(page.getByRole('status')).toContainText('响应格式')
 })
 
-test('连接引导在原处展开，尊重减少动效设置', async ({ page, isMobile }) => {
+test('连接引导始终可见并尊重减少动效设置', async ({ page, isMobile }) => {
   await page.addInitScript(() => {
     Object.defineProperty(navigator, 'bluetooth', { configurable: true, value: undefined })
   })
   await page.emulateMedia({ reducedMotion: 'reduce' })
   await page.goto('/')
   await expect(page.getByRole('link', { name: '在 App Store 查看 Bluefy' })).toHaveCount(isMobile ? 1 : 0)
-  const summary = page.getByText('连接引导', { exact: true })
-  await summary.focus()
-  await summary.press('Enter')
-  const guide = page.locator('.connection-guide')
-  await expect(guide).toHaveAttribute('open', '')
-  await expect(guide.getByRole('listitem')).toHaveCount(3)
-  for (const title of ['打开蓝牙，唤醒车辆', '选择自己的车辆', '查看电池读数']) {
+  const guide = page.getByRole('region', { name: '连接引导' })
+  await expect(guide.getByRole('listitem')).toHaveCount(4)
+  for (const title of ['唤醒车辆', '连接蓝牙', '配对与认证', '读取电池']) {
     await expect(guide.getByText(title, { exact: true })).toBeVisible()
   }
   await expect(guide.locator('.guide-icon').first()).toHaveCSS('animation-name', 'none')
@@ -292,19 +295,41 @@ test('直接打开 BFG UART 并用已有密钥通过分片 GATT 读取车辆数�
   }, { name, lookup, isMobile })
 
   await page.goto('/')
-  await page.getByRole('button', { name: '搜索蓝牙设备' }).click()
   const auth = page.getByRole('region', { name: '车辆配对与认证' })
+  const search = page.getByRole('button', { name: '搜索蓝牙设备' })
+  const authenticate = auth.getByRole('button', { name: '使用密钥认证' })
+  const confirmPairing = auth.getByRole('checkbox', { name: '我有权操作此车，并已了解配对影响' })
+  const pair = auth.getByRole('button', { name: '生成密钥并配对' })
   await expect(auth).toBeVisible()
+  await expect(authenticate).toBeVisible()
+  await expect(pair).toBeVisible()
+  await expect(authenticate).toBeDisabled()
+  await expect(pair).toBeDisabled()
+  if (isMobile) {
+    await search.click()
+    await expect(authenticate).toBeEnabled()
+    await page.getByRole('button', { name: '断开', exact: true }).click()
+    await expect(authenticate).toBeDisabled()
+    await page.getByLabel('蓝牙筛选').selectOption('name-prefix')
+    await page.getByLabel('设备名称前缀').fill(name)
+  }
+  await search.click()
+  await expect(authenticate).toBeEnabled()
+  const activeStep = page.getByRole('region', { name: '连接引导' }).locator('[aria-current=step]')
+  await expect(activeStep).toContainText('配对与认证')
   await expect(page.getByRole('button', { name: '查看标准字段' })).toHaveCount(0)
-  await auth.getByText('生成临时密钥', { exact: true }).click()
-  await expect(auth.getByRole('button', { name: '生成密钥并配对' })).toBeDisabled()
+  await expect(pair).toBeDisabled()
+  await confirmPairing.check()
+  await expect(pair).toBeEnabled()
+  await confirmPairing.uncheck()
   const field = auth.getByLabel('已有配对密钥')
   await field.fill('invalid')
-  await auth.getByRole('button', { name: '使用密钥认证' }).click()
+  await authenticate.click()
   await expect(auth.getByRole('status')).toContainText('32 或 64 位')
   await field.fill(key)
-  await auth.getByRole('button', { name: '使用密钥认证' }).click()
+  await authenticate.click()
   await expect(auth.getByRole('status')).toContainText('已认证')
+  await expect(activeStep).toContainText('读取电池')
   await page.getByRole('button', { name: '读取车辆数据' }).click()
   await expect(page.getByRole('progressbar', { name: '计量模块 SOC' })).toHaveAttribute('value', '63')
   await expect(page.getByText('实读 · 含义待核验').first()).toBeVisible()

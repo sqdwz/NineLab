@@ -183,17 +183,17 @@ export class WebGattTransport implements GattTransport {
     }
     let available: BluetoothRemoteGATTService[] = []
     try {
-      available = await server.getPrimaryServices()
+      available = [...await server.getPrimaryServices()]
     } catch {
       if (!server.connected) throw new Error('发现服务时蓝牙断开')
     }
-    if (!available.length) {
-      for (const uuid of services) {
-        try {
-          available.push(await server.getPrimaryService(uuid))
-        } catch {
-          if (!server.connected) throw new Error('发现服务时蓝牙断开')
-        }
+    // Some browser bridges omit the UART service from the general list.
+    const missing = !available.length ? services : available.some((service) => service.uuid === gatt.uart) ? [] : [gatt.uart]
+    for (const uuid of missing) {
+      try {
+        available.push(await server.getPrimaryService(uuid))
+      } catch {
+        if (!server.connected) throw new Error('发现服务时蓝牙断开')
       }
     }
     const result: ServiceInfo[] = []

@@ -32,6 +32,13 @@ const status = computed(() => props.demo ? '演示模式' : authorizing.value ? 
   authenticated.value && props.connection.state === 'connected' ? '车辆已认证' : connectionLabels[props.connection.state])
 const connecting = computed(() => props.connection.state === 'searching' || props.connection.state === 'connecting')
 const canSearch = computed(() => !connecting.value && (searchMode.value !== 'name-prefix' || Boolean(prefix.value)))
+const pairingAvailable = computed(() => connected.value && props.connection.bfgAvailable)
+const guideStep = computed(() => {
+  if (props.demo || authenticated.value || (connected.value && canRead.value && !pairingAvailable.value)) return 'read'
+  if (pairingAvailable.value) return 'pair'
+  if (connecting.value || connected.value || props.connection.state === 'lost' || props.connection.state === 'error') return 'connect'
+  return 'prepare'
+})
 const browserHelp = computed(() => {
   if (props.capabilities.ios) return '在 Bluefy 中打开此页的 HTTPS 地址。'
   if (!props.capabilities.secure) return '请通过 HTTPS 打开此页后再连接。'
@@ -99,10 +106,12 @@ function search() {
       </button>
     </div>
 
-    <VehicleAuthentication v-if="!demo && (connection.bfgAvailable || connection.generatedKeyAvailable)"
-      :available="connection.bfgAvailable && connected" :state="connection.auth" :message="connection.authMessage"
-      :has-generated-key="connection.generatedKeyAvailable" :can-start="connection.state === 'connected' && !authorizing"
+    <ConnectionGuide :active="guideStep" />
+    <VehicleAuthentication v-if="!demo"
+      :available="pairingAvailable" :state="connection.auth" :message="connection.authMessage"
+      :unavailable-message="connected ? '当前设备未发现九号配对通道。可断开后用兼容搜索重新连接。' : '连接车辆后可使用已有密钥或生成临时密钥。'"
+      :has-generated-key="connection.generatedKeyAvailable"
+      :can-start="pairingAvailable && connection.state === 'connected' && !authorizing"
       :reveal-key="pairingKey" @authenticate="(key) => emit('authenticate', key)" @pair="emit('pair')" />
-    <ConnectionGuide :active="demo || (connected && canRead) ? 'read' : connecting || connected ? 'connect' : 'prepare'" />
   </section>
 </template>
