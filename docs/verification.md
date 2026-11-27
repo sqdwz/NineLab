@@ -5,8 +5,9 @@
 | 检查 | 结果 |
 | --- | --- |
 | TypeScript 与生产构建 | `npm run build` 通过 |
-| Vitest | 4 个测试文件，25 项通过 |
-| Playwright | Chromium 桌面与 iPhone 13 尺寸 WebKit 共 16 项通过、2 项按平台跳过 |
+| Vitest | 4 个测试文件，27 项通过 |
+| Playwright | Chromium 桌面与 iPhone 13 尺寸 WebKit 共 18 项通过、2 项按平台跳过 |
+| 设备选择器 | 已模拟 iPhone 兼容参数、主动改用筛选、桥接对象、蓝牙权限错误及后续 GATT 错误。Bluefy 实机待验 |
 | 生产 PWA 离线启动 | Chromium 通过。手机 WebKit 用例保留给实机离线检查 |
 | 移动界面 | WebKit 验证 320 px 深色模式、页内导航、连接引导（含减少动效设定）及校准确认对话框 |
 | BLE 行为 | 测试注入 GATT 外设模型，验证连接、标准电量读取、订阅、超时、丢弃迟到响应、有限重连及日志保留 |

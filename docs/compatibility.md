@@ -9,6 +9,8 @@
 | Windows Chrome / Edge、macOS Chrome、Android Chrome | 用可用的 Web Bluetooth 和安全上下文。Windows 桌面 Chromium 已测界面，其他平台和实车待验。 |
 | 原生 iOS App | 可沿用 Vue，通过 Capacitor + Core Bluetooth 另行封装。需要 iOS 签名及实体设备。 |
 
+iOS 上默认用简化的 BFG 设备选择器。遇到筛选兼容性问题时，可在「找不到车辆？」中手动选择另一种搜索方式。每次选择器由一次点击打开。诊断日志分别记录选择器、GATT 连接和服务发现的阶段。 [Bluefy 连接指南](https://bluefy.app/guide.html)
+
 移动端底部导航按安全区域留边。窄屏宽度和深色模式已用 iPhone 尺寸的 WebKit 验证。切后台时自动读取暂停，回到页面可手动恢复。单个前台连接遇到意外断开时最多自动尝试重新连接一次，重新连接后，专有读取需要重新认证。需要时可用当前页面保留的新密钥。
 
 | 车型或设备 | GATT | 专有读取 | 写入 |

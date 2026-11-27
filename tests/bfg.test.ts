@@ -119,7 +119,7 @@ describe('BFG 独立加密实现', () => {
 describe('车辆配对和只读会话', () => {
   it('生成密钥后等待车端确认，成功认证后读取分片通知', async () => {
     const { connection, commands, awaiting, approve, log } = mockBfg({ stored: false })
-    await connection.connect(false)
+    await connection.connect('ninebot')
     expect(connection.data.bfgAvailable).toBe(true)
     expect(connection.data.standardAvailable).toBe(false)
     await connection.read()
@@ -149,7 +149,7 @@ describe('车辆配对和只读会话', () => {
 
   it('发现已经配对时只允许现有密钥登录', async () => {
     const { connection, commands } = mockBfg({ stored: true })
-    await connection.connect(false)
+    await connection.connect('ninebot')
     await connection.authorize({ pair: true })
     expect(connection.data.auth).toBe('key-required')
     expect(commands).toEqual([0x5b])
@@ -161,7 +161,7 @@ describe('车辆配对和只读会话', () => {
 
   it('错误密钥认证失败且不会回退到重新配对', async () => {
     const { connection, commands, closed } = mockBfg({ stored: true })
-    await connection.connect(false)
+    await connection.connect('ninebot')
     await connection.authorize({ key: 'abcdefabcdefabcdefabcdefabcdefab' })
     expect(connection.data.auth).toBe('failed')
     expect(closed()).toBe(true)
@@ -171,7 +171,7 @@ describe('车辆配对和只读会话', () => {
 
   it('配对被拒绝时停止，结果可在页面内核对且不重写密钥', async () => {
     const { connection, commands, approve, awaiting, closed } = mockBfg({ stored: false, reject: true })
-    await connection.connect(false)
+    await connection.connect('ninebot')
     const pending = connection.authorize({ pair: true })
     await vi.waitFor(() => expect(awaiting()).toBe(true))
     await approve()
@@ -184,7 +184,7 @@ describe('车辆配对和只读会话', () => {
 
   it('车端确认前断线时不继续鉴权', async () => {
     const { connection, commands, approve, awaiting, drop, closed } = mockBfg({ stored: false })
-    await connection.connect(false)
+    await connection.connect('ninebot')
     const pending = connection.authorize({ pair: true })
     await vi.waitFor(() => expect(awaiting()).toBe(true))
     drop()
@@ -198,7 +198,7 @@ describe('车辆配对和只读会话', () => {
 
   it('一个字段无响应仍读取其他字段，并跳过本会话已超时的字段', async () => {
     const { connection, commands } = mockBfg({ stored: true, missing: true })
-    await connection.connect(false)
+    await connection.connect('ninebot')
     await connection.authorize({ key: initialKey })
     await connection.read()
     expect(connection.data.auth).toBe('ready')

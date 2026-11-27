@@ -1,6 +1,7 @@
 import { shallowReactive } from 'vue'
-import type { GattTransport } from '../bluetooth/transport'
-import { gatt } from '../bluetooth/transport'
+import type { GattTransport, SelectionMode } from '../bluetooth/transport'
+import { gatt, selectionLabels } from '../bluetooth/transport'
+import { bluetoothFailure } from '../bluetooth/errors'
 import type { Direction, FieldId, Readings, Reading, ServiceInfo } from '../domain'
 import { decodeStandard, standardFields } from '../protocol/standard-battery'
 import { BfgSession, parseBfgKey, StoredBfgKey } from '../protocol/bfg-session'
@@ -70,22 +71,24 @@ export function createConnection(
     data.readings = { ...data.readings, [field]: reading }
   }
 
-  function fail(ticket: number, message: string) {
+  function fail(ticket: number, message: string, diagnostic = message) {
     if (generation !== ticket) return
     generation++
     transport.disconnect()
     clearSnapshot()
     data.state = 'error'
     data.message = message
-    log('system', message)
+    log('system', diagnostic)
   }
 
   async function reconnect(ticket: number) {
+    let stage = 'GATT 连接'
     try {
       data.state = 'connecting'
       const started = performance.now()
       await withTimeout(transport.connect(), 10000, 'GATT 连接超时')
       assertActive(ticket)
+      stage = 'GATT 服务发现'
       const services = await withTimeout(transport.discover(), 12000, 'GATT 服务发现超时')
       assertActive(ticket)
       data.services = services
@@ -103,9 +106,11 @@ export function createConnection(
       data.message = ''
       log('system', 'GATT 已建立，发现 ' + services.length + ' 个可见服务', { duration: performance.now() - started })
     } catch (error) {
-      const message = error instanceof DOMException && error.name === 'TimeoutError'
-        ? error.message : 'GATT 连接或服务发现失败，请检查车辆和浏览器权限。'
-      fail(ticket, message)
+      const { name, reason } = bluetoothFailure(error)
+      const hint = name === 'TimeoutError' ? '等待设备响应超时。' :
+        reason === 'unsupported' && stage === 'GATT 连接' ? '已选中设备，但浏览器未提供可用的 GATT 接口。' :
+          '请确认车辆已唤醒，且蓝牙连接未被其他 App 占用。'
+      fail(ticket, stage + '失败。' + hint, stage + '失败 · ' + name + ' · ' + reason)
     }
   }
 
@@ -123,7 +128,7 @@ export function createConnection(
     }, 1000)
   }
 
-  async function connect(broad: boolean) {
+  async function connect(mode: SelectionMode) {
     if (['searching', 'connecting', 'connected', 'reading'].includes(data.state)) return
     clearTimeout(retryTimer)
     clearSnapshot()
@@ -132,22 +137,27 @@ export function createConnection(
     data.message = ''
     retries = 0
     try {
-      await transport.select(broad)
-      if (ticket !== generation) return
-      forgetKey()
-      data.selected = true
-      data.lastServices = []
-      data.name = transport.name
-      await reconnect(ticket)
+      await transport.select(mode)
     } catch (error) {
       if (ticket !== generation) return
-      if (error instanceof DOMException && ['NotFoundError', 'AbortError'].includes(error.name)) {
+      const details = bluetoothFailure(error)
+      const diagnostic = '设备选择器 · ' + selectionLabels[mode] + ' · ' + details.name + ' · ' + details.reason
+      if (details.reason === 'unselected') {
         data.state = 'idle'
-        data.message = '未选中蓝牙设备。'
+        data.message = details.hint
+        log('system', diagnostic)
         return
       }
-      fail(ticket, '无法打开设备选择器，请检查蓝牙权限及 HTTPS。')
+      fail(ticket, '设备选择失败。' + details.hint, diagnostic)
+      return
     }
+    if (ticket !== generation) return
+    forgetKey()
+    data.selected = true
+    data.lastServices = []
+    data.name = transport.name
+    log('system', '设备已选中 · ' + selectionLabels[mode])
+    await reconnect(ticket)
   }
 
   async function retry() {

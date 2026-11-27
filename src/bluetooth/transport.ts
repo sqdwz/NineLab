@@ -2,7 +2,7 @@ import type { ServiceInfo } from '../domain'
 import type { BfgChannel, OpenBfgChannel } from '../protocol/bfg-session'
 
 export interface GattTransport {
-  select(broad: boolean): Promise<void>
+  select(mode: SelectionMode): Promise<void>
   connect(): Promise<void>
   disconnect(): void
   discover(): Promise<ServiceInfo[]>
@@ -31,30 +31,69 @@ export const gatt = {
 const services = [gatt.uart, gatt.segwayUart, gatt.battery, gatt.device]
 const filterNames = ['Ninebot', 'NINEBOT', 'Segway', 'SEGWAY']
 
+export type SelectionMode = 'ninebot' | 'bfg-compatible' | 'bfg-filtered' | 'nearby'
+
+export const selectionLabels: Record<SelectionMode, string> = {
+  ninebot: '九号筛选',
+  'bfg-compatible': 'iPhone 兼容',
+  'bfg-filtered': '仅 BFG 服务',
+  nearby: '附近 BLE',
+}
+
+function selectionOptions(mode: SelectionMode): RequestDeviceOptions {
+  if (mode === 'bfg-compatible') return { acceptAllDevices: true, optionalServices: [gatt.uart] }
+  if (mode === 'bfg-filtered') return { filters: [{ services: [gatt.uart] }] }
+  if (mode === 'nearby') return { acceptAllDevices: true, optionalServices: [...services] }
+  return {
+    filters: [
+      { services: [gatt.uart] }, { services: [gatt.segwayUart] },
+      ...filterNames.map((namePrefix) => ({ namePrefix })),
+    ],
+    optionalServices: [...services],
+  }
+}
+
 export class WebGattTransport implements GattTransport {
   onDisconnect: (() => void) | undefined
   private device: BluetoothDevice | undefined
   private server: BluetoothRemoteGATTServer | undefined
   private generation = 0
   private listeners = new Set<() => void>()
+  private stopWatchingDevice: (() => void) | undefined
 
   get name() { return this.device?.name || '未广播名称' }
   get selected() { return Boolean(this.device) }
   get connected() { return Boolean(this.server?.connected) }
 
-  async select(broad: boolean) {
+  async select(mode: SelectionMode) {
     const generation = this.generation
-    const options: RequestDeviceOptions = broad
-      ? { acceptAllDevices: true, optionalServices: services }
-      : { filters: [
-        { services: [gatt.uart] }, { services: [gatt.segwayUart] },
-        ...filterNames.map((namePrefix) => ({ namePrefix })),
-      ], optionalServices: services }
-    const device = await navigator.bluetooth.requestDevice(options)
+    // Invoke the native picker directly in the click handler's task.
+    const device = await navigator.bluetooth.requestDevice(selectionOptions(mode))
     if (generation !== this.generation) throw new DOMException('选择已取消', 'AbortError')
-    this.device?.removeEventListener('gattserverdisconnected', this.lost)
+    if (!device) throw new DOMException('未选择设备。', 'NotFoundError')
+    this.stopWatchingDevice?.()
+    this.stopWatchingDevice = undefined
     this.device = device
-    device.addEventListener('gattserverdisconnected', this.lost)
+  }
+
+  private watchDevice(device: BluetoothDevice) {
+    if (this.stopWatchingDevice) return
+    if (typeof device.addEventListener === 'function' && typeof device.removeEventListener === 'function') {
+      device.addEventListener('gattserverdisconnected', this.lost)
+      this.stopWatchingDevice = () => device.removeEventListener('gattserverdisconnected', this.lost)
+    } else if ('ongattserverdisconnected' in device) {
+      // Some native Web Bluetooth bridges expose the event handler property only.
+      const bridged = device as BluetoothDevice & { ongattserverdisconnected: ((event: Event) => void) | null }
+      const previous = bridged.ongattserverdisconnected
+      const notify = (event: Event) => {
+        this.lost()
+        previous?.call(bridged, event)
+      }
+      bridged.ongattserverdisconnected = notify
+      this.stopWatchingDevice = () => {
+        if (bridged.ongattserverdisconnected === notify) bridged.ongattserverdisconnected = previous
+      }
+    }
   }
 
   private lost = () => {
@@ -71,10 +110,14 @@ export class WebGattTransport implements GattTransport {
   }
 
   async connect() {
-    const remote = this.device?.gatt
+    const device = this.device
+    const remote = device?.gatt
     const generation = this.generation
-    if (!remote) throw new Error('所选设备没有 GATT 接口')
-    const server = await remote.connect()
+    if (!device || !remote || typeof remote.connect !== 'function') {
+      throw new DOMException('所选设备没有 GATT 接口。', 'NotSupportedError')
+    }
+    this.watchDevice(device)
+    const server = await remote.connect() ?? remote
     if (generation !== this.generation) {
       if (!this.server?.connected) server.disconnect()
       throw new DOMException('连接已取消', 'AbortError')
@@ -86,7 +129,8 @@ export class WebGattTransport implements GattTransport {
     this.generation++
     this.clearCharacteristics()
     this.server = undefined
-    this.device?.gatt?.disconnect()
+    const remote = this.device?.gatt
+    if (remote?.connected) remote.disconnect()
   }
 
   private active() {

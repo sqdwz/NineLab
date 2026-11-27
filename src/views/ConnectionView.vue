@@ -4,6 +4,7 @@ import { Bluetooth, BluetoothConnected, FlaskConical } from '@lucide/vue'
 import ConnectionGuide from '../components/ConnectionGuide.vue'
 import VehicleAuthentication from '../components/VehicleAuthentication.vue'
 import type { detectCapabilities } from '../bluetooth/capabilities'
+import type { SelectionMode } from '../bluetooth/transport'
 import { connectionLabels, isAuthorizing } from '../stores/connection'
 import type { createConnection } from '../stores/connection'
 
@@ -14,8 +15,9 @@ const props = defineProps<{
   pairingKey: () => string
 }>()
 const emit = defineEmits<{
-  connect: [broad: boolean]; retry: []; disconnect: []; demo: []; read: []; authenticate: [key?: string]; pair: []
+  connect: [mode: SelectionMode]; retry: []; disconnect: []; demo: []; read: []; authenticate: [key?: string]; pair: []
 }>()
+const searchMode = computed<SelectionMode>(() => props.capabilities.ios ? 'bfg-compatible' : 'ninebot')
 const connected = computed(() => props.connection.state === 'connected' || props.connection.state === 'reading')
 const authorizing = computed(() => isAuthorizing(props.connection.auth))
 const authenticated = computed(() => props.connection.auth === 'ready')
@@ -56,7 +58,7 @@ const bluefyUrl = 'https://apps.apple.com/cn/app/bluefy-web-ble-browser/id149282
       <button v-else-if="connected && canRead" type="button" class="button primary" :disabled="authorizing" @click="emit('read')">
         <BluetoothConnected :size="19" aria-hidden="true" /> {{ authenticated ? '读取车辆数据' : '查看标准字段' }}
       </button>
-      <button v-else-if="capabilities.ready && !connected" type="button" class="button primary" :disabled="connecting" @click="emit('connect', false)">
+      <button v-else-if="capabilities.ready && !connected" type="button" class="button primary" :disabled="connecting" @click="emit('connect', searchMode)">
         <Bluetooth :size="19" aria-hidden="true" />
         {{ connection.state === 'searching' ? '请在系统列表选设备' : connection.state === 'connecting' ? '正在连接…' : '搜索九号设备' }}
       </button>
@@ -72,7 +74,13 @@ const bluefyUrl = 'https://apps.apple.com/cn/app/bluefy-web-ble-browser/id149282
 
     <details v-if="capabilities.ready && !demo && !connecting && !connected" class="advanced">
       <summary>找不到车辆？</summary>
-      <button type="button" class="button secondary" @click="emit('connect', true)">显示附近 BLE 设备</button>
+      <div class="button-row">
+        <button v-if="capabilities.ios" type="button" class="button secondary" @click="emit('connect', 'bfg-filtered')">
+          仅按 BFG 服务筛选
+        </button>
+        <button v-else type="button" class="button secondary" @click="emit('connect', 'bfg-compatible')">兼容方式搜索</button>
+        <button type="button" class="button secondary" @click="emit('connect', 'nearby')">显示附近 BLE 设备</button>
+      </div>
     </details>
     <VehicleAuthentication v-if="!demo && (connection.bfgAvailable || connection.generatedKeyAvailable)"
       :available="connection.bfgAvailable && connected" :state="connection.auth" :message="connection.authMessage"

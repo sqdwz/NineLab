@@ -263,3 +263,49 @@ test('配对面板支持已有密钥，鉴权后通过分片 GATT 读取车辆�
   expect(logged).not.toContain(key)
   expect(logged).not.toContain('SIMULATED12345')
 })
+
+test('选择器兼容路径需单独点击，错误可定位且可恢复', async ({ page, isMobile }) => {
+  await page.addInitScript(({ isMobile }) => {
+    const uart = '6e400001-b5a3-f393-e0a9-e50e24dcca9e'
+    const remote = {
+      connected: false,
+      connect: async () => { remote.connected = true },
+      disconnect: () => { remote.connected = false },
+      getPrimaryServices: async () => [],
+      getPrimaryService: async () => { throw new DOMException('Absent service', 'NotFoundError') },
+    }
+    const chosen = { name: 'BLE compatibility mock', gatt: remote, ongattserverdisconnected: null }
+    let attempts = 0
+    Object.defineProperty(navigator, 'bluetooth', {
+      value: { requestDevice: async (options: RequestDeviceOptions) => {
+        if (navigator.userActivation && !navigator.userActivation.isActive) {
+          throw new DOMException('Transient activation is required', 'SecurityError')
+        }
+        if (++attempts === 1) {
+          if (isMobile && JSON.stringify(options) !== JSON.stringify({ acceptAllDevices: true, optionalServices: [uart] })) {
+            throw new DOMException('iPhone must use the minimal BFG request', 'NotSupportedError')
+          }
+          if (!isMobile && !('filters' in options)) throw new DOMException('Expected desktop filters', 'NotSupportedError')
+          throw { name: 'TypeError', message: 'Unsupported request options (internal private mock detail)' }
+        }
+        const expected = isMobile ? { filters: [{ services: [uart] }] } : { acceptAllDevices: true, optionalServices: [uart] }
+        if (attempts !== 2 || JSON.stringify(options) !== JSON.stringify(expected)) {
+          throw new DOMException('Unexpected fallback', 'NotSupportedError')
+        }
+        return chosen
+      } },
+    })
+  }, { isMobile })
+  await page.goto('/')
+  await page.getByRole('button', { name: '搜索九号设备' }).click()
+  await expect(page.locator('#connection').getByRole('status')).toContainText('未接受这组搜索条件')
+  const log = page.locator('#diagnostic .log-output')
+  await expect(log).toContainText('设备选择器 · ' + (isMobile ? 'iPhone 兼容' : '九号筛选') + ' · TypeError')
+  await expect(log).not.toContainText('private mock detail')
+  await expect(log).not.toContainText('设备已选中')
+  await page.getByText('找不到车辆？', { exact: true }).click()
+  await page.getByRole('button', { name: isMobile ? '仅按 BFG 服务筛选' : '兼容方式搜索' }).click()
+  await expect(page.getByText('已连接 · 未认证', { exact: true })).toBeVisible()
+  await expect(log).toContainText('设备已选中')
+  await expect(log).toContainText('GATT 已建立')
+})
