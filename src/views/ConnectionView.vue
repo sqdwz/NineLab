@@ -45,10 +45,24 @@ const browserHelp = computed(() => {
   return '请使用支持 Web Bluetooth 的 Chrome 或 Edge。'
 })
 const bluefyUrl = 'https://apps.apple.com/cn/app/bluefy-web-ble-browser/id1492822055'
+const canSearchForPairing = computed(() => props.capabilities.ready && !connecting.value &&
+  !pairingAvailable.value && props.connection.state !== 'reading')
+const pairingUnavailable = computed(() => {
+  if (connecting.value) return '正在连接车辆，检测到配对通道后即可开始。'
+  if (connected.value) return '当前设备未发现九号配对通道。兼容搜索会断开当前设备，再打开设备列表。'
+  if (!props.capabilities.ready) return browserHelp.value
+  return props.connection.message || '请先搜索并连接车辆。'
+})
 
 function search() {
   if (!canSearch.value) return
   emit('connect', searchMode.value === 'name-prefix' ? { namePrefix: prefix.value } : searchMode.value)
+}
+
+function searchForPairing() {
+  if (!canSearchForPairing.value) return
+  if (connected.value) emit('disconnect')
+  emit('connect', 'bfg-compatible')
 }
 </script>
 
@@ -109,9 +123,9 @@ function search() {
     <ConnectionGuide :active="guideStep" />
     <VehicleAuthentication v-if="!demo"
       :available="pairingAvailable" :state="connection.auth" :message="connection.authMessage"
-      :unavailable-message="connected ? '当前设备未发现九号配对通道。可断开后用兼容搜索重新连接。' : '连接车辆后可使用已有密钥或生成临时密钥。'"
-      :has-generated-key="connection.generatedKeyAvailable"
+      :unavailable-message="pairingUnavailable" :has-generated-key="connection.generatedKeyAvailable"
+      :can-search="canSearchForPairing"
       :can-start="pairingAvailable && connection.state === 'connected' && !authorizing"
-      :reveal-key="pairingKey" @authenticate="(key) => emit('authenticate', key)" @pair="emit('pair')" />
+      :reveal-key="pairingKey" @authenticate="(key) => emit('authenticate', key)" @pair="emit('pair')" @search="searchForPairing" />
   </section>
 </template>

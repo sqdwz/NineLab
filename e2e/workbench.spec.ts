@@ -170,7 +170,9 @@ test('通过浏览器 GATT 接口读取标准电量，且诊断保留发现记�
   const auth = page.getByRole('region', { name: '车辆配对与认证' })
   await expect(auth).toContainText('当前设备未发现九号配对通道')
   await expect(auth.getByRole('button', { name: '使用密钥认证' })).toBeDisabled()
-  await expect(auth.getByRole('button', { name: '生成密钥并配对' })).toBeDisabled()
+  await auth.getByRole('button', { name: '临时配对', exact: true }).click()
+  await expect(auth.getByRole('button', { name: '兼容搜索车辆' })).toBeEnabled()
+  await expect(auth.getByRole('button', { name: '确认并开始配对' })).toHaveCount(0)
   await page.getByRole('button', { name: '查看标准字段' }).click()
   await expect(page.getByRole('progressbar', { name: '标准 BLE 电量' })).toHaveAttribute('value', '54')
   await expect(page.getByRole('heading', { name: '电池电压' }).locator('..')).toContainText('待实车验证')
@@ -209,6 +211,9 @@ test('连接引导始终可见并尊重减少动效设置', async ({ page, isMob
   await expect(guide.locator('.guide-icon').first()).toHaveCSS('animation-name', 'none')
   await expect(page.getByRole('dialog')).toHaveCount(0)
   await expect(page.getByRole('button', { name: '搜索蓝牙设备' })).toHaveCount(0)
+  await page.getByRole('button', { name: '临时配对', exact: true }).click()
+  await expect(page.locator('#temporary-pairing')).toContainText(isMobile ? '在 Bluefy 中打开' : '支持 Web Bluetooth')
+  await expect(page.getByRole('button', { name: '兼容搜索车辆' })).toHaveCount(0)
   await page.getByRole('button', { name: '体验演示' }).click()
   await expect(page).toHaveURL(/#read$/)
   await expect(page.getByRole('heading', { name: '电池读取' })).toBeFocused()
@@ -290,9 +295,18 @@ test('直接打开 BFG UART 并用已有密钥通过分片 GATT 读取车辆数�
         return service
       },
     }
+    let requests = 0
     Object.defineProperty(navigator, 'bluetooth', {
       configurable: true,
-      value: { requestDevice: async () => Object.assign(new EventTarget(), { name, gatt }) },
+      value: { requestDevice: async (options: RequestDeviceOptions) => {
+        if (navigator.userActivation && !navigator.userActivation.isActive) {
+          throw new DOMException('Transient activation is required', 'SecurityError')
+        }
+        if (++requests === 1 && JSON.stringify(options) !== JSON.stringify({ acceptAllDevices: true, optionalServices: [uart] })) {
+          throw new DOMException('Expected the compatible pairing chooser', 'NotSupportedError')
+        }
+        return Object.assign(new EventTarget(), { name, gatt })
+      } },
     })
   }, { name, lookup, isMobile })
 
@@ -300,18 +314,19 @@ test('直接打开 BFG UART 并用已有密钥通过分片 GATT 读取车辆数�
   const auth = page.getByRole('region', { name: '车辆配对与认证' })
   const search = page.getByRole('button', { name: '搜索蓝牙设备' })
   const authenticate = auth.getByRole('button', { name: '使用密钥认证' })
-  const confirmPairing = auth.getByRole('checkbox', { name: '我有权操作此车，并已了解配对影响' })
-  const pair = auth.getByRole('button', { name: '生成密钥并配对' })
+  const pair = auth.getByRole('button', { name: '临时配对', exact: true })
+  const confirmPairing = auth.getByRole('button', { name: '确认并开始配对' })
   await expect(auth).toBeVisible()
   await expect(authenticate).toBeVisible()
   await expect(pair).toBeVisible()
   await expect(authenticate).toBeDisabled()
-  await expect(pair).toBeDisabled()
+  await pair.click()
+  await auth.getByRole('button', { name: '兼容搜索车辆' }).click()
+  await expect(confirmPairing).toBeEnabled()
+  await pair.click()
+  await page.getByRole('button', { name: '断开', exact: true }).click()
+  await expect(authenticate).toBeDisabled()
   if (isMobile) {
-    await search.click()
-    await expect(authenticate).toBeEnabled()
-    await page.getByRole('button', { name: '断开', exact: true }).click()
-    await expect(authenticate).toBeDisabled()
     await page.getByLabel('蓝牙筛选').selectOption('name-prefix')
     await page.getByLabel('设备名称前缀').fill(name)
   }
@@ -320,14 +335,16 @@ test('直接打开 BFG UART 并用已有密钥通过分片 GATT 读取车辆数�
   const activeStep = page.getByRole('region', { name: '连接引导' }).locator('[aria-current=step]')
   await expect(activeStep).toContainText('配对与认证')
   await expect(page.getByRole('button', { name: '查看标准字段' })).toHaveCount(0)
-  await expect(pair).toBeDisabled()
-  await confirmPairing.check()
-  await expect(pair).toBeEnabled()
-  await confirmPairing.uncheck()
   const field = auth.getByLabel('已有配对密钥')
   await field.fill('invalid')
   await authenticate.click()
   await expect(auth.getByRole('status')).toContainText('32 或 64 位')
+  await pair.click()
+  await confirmPairing.click()
+  await expect(auth.getByRole('status')).toContainText('车辆已有配对密钥')
+  await pair.click()
+  await expect(confirmPairing).toHaveCount(0)
+  await expect(auth.locator('#temporary-pairing')).toContainText('请使用已有密钥认证')
   await field.fill(key)
   await authenticate.click()
   await expect(auth.getByRole('status')).toContainText('已认证')
