@@ -21,7 +21,7 @@ const clueOf = (id: FieldId) => registerClues.find((item) => item.field === id)
 
 <template>
   <header class="page-head action-head">
-    <div><h1>电池读取</h1><p v-if="demo">演示模式</p></div>
+    <div><h2 id="read-title" class="flow-title" tabindex="-1">电池读取</h2><p v-if="demo">演示模式</p></div>
     <div class="button-row">
       <button class="button secondary" :disabled="!demo && !connected" :aria-pressed="polling" @click="emit('togglePolling')">
         <Pause v-if="polling" :size="17" aria-hidden="true" /><Play v-else :size="17" aria-hidden="true" />
@@ -36,7 +36,7 @@ const clueOf = (id: FieldId) => registerClues.find((item) => item.field === id)
   <section class="card soc-card" aria-labelledby="soc-title">
     <div class="section-top">
       <span class="section-label"><Battery :size="21" aria-hidden="true" />
-        <h2 id="soc-title">{{ socId ? fieldLabels[socId] : '当前电量' }}</h2></span>
+        <h3 id="soc-title">{{ socId ? fieldLabels[socId] : '当前电量' }}</h3></span>
       <span class="pill" :class="demo ? 'amber' : 'green'">{{ soc ? originLabels[soc.origin] : '未读取' }}</span>
     </div>
     <div class="soc-number">{{ soc?.value ?? '—' }}<span v-if="soc">%</span></div>
@@ -48,33 +48,36 @@ const clueOf = (id: FieldId) => registerClues.find((item) => item.field === id)
 
   <div class="metric-grid">
     <section v-for="{id, icon} of metrics" :key="id" class="card metric">
-      <h2><component :is="icon" :size="18" aria-hidden="true" /> {{ fieldLabels[id] }}</h2>
+      <h3><component :is="icon" :size="18" aria-hidden="true" /> {{ fieldLabels[id] }}</h3>
       <p class="metric-number">{{ readings[id]?.value ?? '—' }} <small>{{ fieldUnits[id] }}</small></p>
       <span>{{ readings[id] ? originLabels[readings[id].origin] : clueOf(id) ? '待实车验证' : '暂不支持' }}</span>
     </section>
   </div>
 
   <section class="card" aria-labelledby="details-heading">
-    <div class="section-top"><h2 id="details-heading">详细参数</h2>
+    <div class="section-top"><h3 id="details-heading">详细参数</h3>
       <button class="button secondary" :disabled="Object.keys(readings).length === 0" @click="emit('export')">
         <Download :size="17" aria-hidden="true" /> 导出 CSV
       </button>
     </div>
-    <div v-for="field in fields" :key="field" class="reading-row">
-      <div>
-        <strong>{{ field === 'model' && !demo ? 'BLE 设备型号' : fieldLabels[field] }}</strong>
-        <div class="reading-source">{{ readings[field]?.source ?? (clueOf(field) ?
-          '线索 ' + hexNumber(clueOf(field)!.module) + ' / ' + hexNumber(clueOf(field)!.register) : '') }}</div>
+    <details>
+      <summary>查看全部字段</summary>
+      <div v-for="field in fields" :key="field" class="reading-row">
+        <div>
+          <strong>{{ field === 'model' && !demo ? 'BLE 设备型号' : fieldLabels[field] }}</strong>
+          <div class="reading-source">{{ readings[field]?.source ?? (clueOf(field) ?
+            '线索 ' + hexNumber(clueOf(field)!.module) + ' / ' + hexNumber(clueOf(field)!.register) : '') }}</div>
+        </div>
+        <div class="reading-value">
+          <strong>{{ readings[field]?.value ?? '—' }} {{ readings[field]?.value != null ? fieldUnits[field] : '' }}</strong>
+          <span>{{ readings[field] ? originLabels[readings[field].origin] : clueOf(field) ? '待实车验证' : '暂不支持' }}</span>
+          <time v-if="readings[field]?.time" :datetime="readings[field]?.time">{{ new Date(readings[field]!.time).toLocaleTimeString('zh-CN', { hour12: false }) }}</time>
+        </div>
+        <details v-if="readings[field]?.raw || readings[field]?.detail" class="reading-raw">
+          <summary>原始数据</summary>
+          <code>{{ readings[field]?.raw }}</code> {{ readings[field]?.detail }}
+        </details>
       </div>
-      <div class="reading-value">
-        <strong>{{ readings[field]?.value ?? '—' }} {{ readings[field]?.value != null ? fieldUnits[field] : '' }}</strong>
-        <span>{{ readings[field] ? originLabels[readings[field].origin] : clueOf(field) ? '待实车验证' : '暂不支持' }}</span>
-        <time v-if="readings[field]?.time" :datetime="readings[field]?.time">{{ new Date(readings[field]!.time).toLocaleTimeString('zh-CN', { hour12: false }) }}</time>
-      </div>
-      <details v-if="readings[field]?.raw || readings[field]?.detail" class="reading-raw">
-        <summary>原始数据</summary>
-        <code>{{ readings[field]?.raw }}</code> {{ readings[field]?.detail }}
-      </details>
-    </div>
+    </details>
   </section>
 </template>

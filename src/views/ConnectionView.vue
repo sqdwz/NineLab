@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
-import { Bluetooth, BluetoothConnected, CircleHelp, FlaskConical } from '@lucide/vue'
+import { computed } from 'vue'
+import { Bluetooth, BluetoothConnected, FlaskConical } from '@lucide/vue'
 import ConnectionGuide from '../components/ConnectionGuide.vue'
 import type { detectCapabilities } from '../bluetooth/capabilities'
 import { connectionLabels } from '../stores/connection'
@@ -12,7 +12,6 @@ const props = defineProps<{
   demo: boolean
 }>()
 const emit = defineEmits<{ connect: [broad: boolean]; retry: []; disconnect: []; demo: []; read: [] }>()
-const guide = ref<InstanceType<typeof ConnectionGuide>>()
 const connected = computed(() => props.connection.state === 'connected' || props.connection.state === 'reading')
 const connecting = computed(() => props.connection.state === 'searching' || props.connection.state === 'connecting')
 const browserHelp = computed(() => {
@@ -21,16 +20,11 @@ const browserHelp = computed(() => {
   return '请使用支持 Web Bluetooth 的 Chrome 或 Edge。'
 })
 const bluefyUrl = 'https://apps.apple.com/cn/app/bluefy-web-ble-browser/id1492822055'
-
-function readDemo() {
-  emit('demo')
-  emit('read')
-}
 </script>
 
 <template>
   <header class="page-head">
-    <h1>连接车辆</h1>
+    <h2 id="connection-title" class="flow-title" tabindex="-1">连接车辆</h2>
   </header>
 
   <section class="card connection-panel" aria-labelledby="ble-title">
@@ -40,7 +34,7 @@ function readDemo() {
         <span class="dot"></span>{{ demo ? '演示模式' : connectionLabels[connection.state] }}
       </span>
     </div>
-    <h2 id="ble-title">{{ demo ? 'NineLab 演示台' : connection.selected ? connection.name : '本机蓝牙' }}</h2>
+    <h3 id="ble-title">{{ demo ? 'NineLab 演示台' : connection.selected ? connection.name : '本机蓝牙' }}</h3>
     <template v-if="!demo && !capabilities.ready">
       <p>{{ browserHelp }}</p>
       <a v-if="capabilities.ios" class="text-link" :href="bluefyUrl" target="_blank" rel="noopener noreferrer">
@@ -65,20 +59,12 @@ function readDemo() {
       <button v-else type="button" class="button" :class="capabilities.ready ? 'secondary' : 'primary'" @click="emit('demo')">
         <FlaskConical :size="18" aria-hidden="true" /> 体验演示
       </button>
-      <button type="button" class="button secondary" aria-haspopup="dialog" @click="guide?.open()">
-        <CircleHelp :size="18" aria-hidden="true" /> 连接引导
-      </button>
     </div>
 
     <details v-if="capabilities.ready && !demo && !connecting && !connected" class="advanced">
       <summary>找不到车辆？</summary>
       <button type="button" class="button secondary" @click="emit('connect', true)">显示附近 BLE 设备</button>
     </details>
+    <ConnectionGuide :active="demo || connected ? 'read' : connecting ? 'connect' : 'prepare'" />
   </section>
-
-  <ConnectionGuide ref="guide" :ready="capabilities.ready" :connected="connected" :state="connection.state"
-    :message="connection.message" :demo="demo" @connect="emit('connect', false)" @cancel="emit('disconnect')"
-    @read="emit('read')" @demo="readDemo">
-    <template #browser-help>{{ browserHelp }}</template>
-  </ConnectionGuide>
 </template>

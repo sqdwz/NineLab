@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { ArrowDownLeft, ArrowUpRight, Copy, Download, Terminal, Trash2 } from '@lucide/vue'
 import type { Direction, LogEntry, ServiceInfo } from '../domain'
 import { fieldLabels } from '../domain'
@@ -34,6 +34,10 @@ const filter = ref<Direction | 'all'>('all')
 const format = ref<'json' | 'csv' | 'txt'>('json')
 const feedback = ref('')
 const copyText = ref('')
+watch(() => props.demo, () => {
+  copyText.value = ''
+  feedback.value = ''
+})
 const filtered = computed(() => props.logs.filter((log) => filter.value === 'all' || filter.value === log.direction))
 const textOutput = () => filtered.value.map((log) => [log.time, log.mode, log.direction, log.message, log.raw, log.decoded,
   log.check, log.duration === undefined ? '' : Math.round(log.duration) + 'ms'].filter(Boolean).join('  ')).join('\n')
@@ -60,9 +64,9 @@ function download() {
 </script>
 
 <template>
-  <header class="page-head"><h1>通信诊断</h1><p v-if="demo">演示模式</p></header>
+  <header class="page-head"><h2 id="diagnostic-title" class="flow-title" tabindex="-1">通信诊断</h2><p v-if="demo">演示模式</p></header>
   <section class="card">
-    <div class="section-top"><h2>GATT 服务</h2><span class="pill">{{ services.length }} 个可见服务</span></div>
+    <div class="section-top"><h3>GATT 服务</h3><span class="pill">{{ services.length }} 个可见服务</span></div>
     <p v-if="services.length && !connected">上次连接的服务记录。</p>
     <p v-if="services.length === 0">{{ demo ? '演示使用内存传输层。' : '连接设备后显示浏览器有权访问的服务。' }}</p>
     <details v-for="service in services" :key="service.uuid" class="service">
@@ -74,7 +78,7 @@ function download() {
     </details>
   </section>
   <section class="card diagnostic-card" aria-labelledby="log-title">
-    <div class="section-top"><h2 id="log-title" class="section-label"><Terminal :size="19" aria-hidden="true" /> 通信日志</h2>
+    <div class="section-top"><h3 id="log-title" class="section-label"><Terminal :size="19" aria-hidden="true" /> 通信日志</h3>
       <label class="select-label">方向 <select v-model="filter"><option value="all">全部</option><option value="out">发送</option>
         <option value="in">接收</option><option value="system">事件</option></select></label>
     </div>

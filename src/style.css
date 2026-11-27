@@ -50,10 +50,10 @@ a { color: var(--accent-copy); }
 button, summary, select { cursor: pointer; }
 button:disabled { cursor: not-allowed; opacity: .52; }
 :focus-visible { outline: 2px solid var(--accent-copy); outline-offset: 3px; }
-main:focus { outline: none; }
-h1, h2, p, dl { margin: 0; }
-h1 { font-size: clamp(1.85rem, 4.4vw, 2.6rem); line-height: 1.18; letter-spacing: -.045em; }
-h2 { font-size: 1.12rem; line-height: 1.4; }
+.flow-title:focus { outline: none; }
+h1, h2, h3, p, dl { margin: 0; }
+h1, .flow-title { font-size: clamp(1.65rem, 3.8vw, 2.2rem); line-height: 1.18; letter-spacing: -.035em; }
+h2, h3 { font-size: 1.12rem; line-height: 1.4; }
 p { color: var(--muted); line-height: 1.6; overflow-wrap: anywhere; }
 svg { flex: none; }
 code { overflow-wrap: anywhere; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; }
@@ -73,10 +73,15 @@ code { overflow-wrap: anywhere; font-family: ui-monospace, SFMono-Regular, Conso
   font-weight: 600; color: var(--muted); text-decoration: none;
 }
 .nav a:hover { background: var(--panel); }
-.nav a[aria-current="page"] { background: var(--accent-light); color: var(--accent-copy); }
+.nav a[aria-current="location"] { background: var(--accent-light); color: var(--accent-copy); }
 .workspace { padding: 30px clamp(24px, 4.2vw, 68px) 70px; }
 .page-frame { max-width: 1080px; margin: 0 auto; }
-.connection-panel { max-width: 700px; }
+.flow-section { scroll-margin-top: 16px; }
+.flow-section + .flow-section {
+  margin-top: 36px;
+  padding-top: 24px;
+  border-top: 1px solid var(--border);
+}
 .page-head { margin-bottom: 24px; }
 .page-head p { margin-top: 8px; }
 .action-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 14px; }
@@ -126,8 +131,8 @@ dd { margin: 0; font-weight: 650; text-align: end; overflow-wrap: anywhere; }
 .soc-progress::-moz-progress-bar { background: var(--accent); border-radius: 99px; }
 .metric-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin: 16px 0 0; }
 .metric-grid .card { margin: 0; padding: 17px; }
-.metric h2 { display: flex; align-items: center; gap: 7px; font-size: .9rem; color: var(--muted); font-weight: 600; }
-.metric h2 svg { color: var(--accent-copy); }
+.metric h3 { display: flex; align-items: center; gap: 7px; font-size: .9rem; color: var(--muted); font-weight: 600; }
+.metric h3 svg { color: var(--accent-copy); }
 .metric .metric-number { color: var(--text); font-size: clamp(1.6rem, 4vw, 2.3rem); font-weight: 740; font-variant-numeric: tabular-nums; line-height: 1.15; }
 .metric-number small { font-size: .45em; color: var(--muted); font-weight: 600; }
 .metric > span { color: var(--muted); font-size: .83rem; display: inline-block; margin-top: 6px; }
@@ -198,6 +203,7 @@ textarea { width: 100%; min-height: 90px; margin-top: 7px; padding: 7px; color: 
   .nav a { flex-direction: column; justify-content: center; gap: 3px; min-height: 48px; padding: 3px; font-size: .79rem; }
   .nav a svg { width: 18px; height: 18px; }
   .workspace { padding: 14px max(12px, env(safe-area-inset-right)) calc(78px + env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left)); }
+  .flow-section + .flow-section { margin-top: 25px; padding-top: 18px; }
   .page-head { margin-bottom: 15px; }
   .page-head p { margin-top: 5px; }
   .action-head { align-items: flex-start; flex-direction: column; }
@@ -208,7 +214,7 @@ textarea { width: 100%; min-height: 90px; margin-top: 7px; padding: 7px; color: 
   .spec-grid, .metric-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .metric-grid { gap: 8px; margin-top: 10px; }
   .metric-grid .card { margin: 0; padding: 12px; }
-  .metric h2 { gap: 4px; }
+  .metric h3 { gap: 4px; }
 }
 @media (max-width: 360px) {
   .card { padding: 12px; }

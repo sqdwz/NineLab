@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { Download, LockKeyhole, ShieldCheck, Upload } from '@lucide/vue'
 import { demoProfiles } from '../calibration/calibration'
 import type { MeterParameters, MeterSnapshot } from '../calibration/calibration'
@@ -26,6 +26,14 @@ const locked = [
   ['仪表能量参数', '高', '单位、可写性和恢复方式待确认'],
 ]
 
+watch(() => props.snapshot !== null, (available) => {
+  if (available) return
+  authorized.value = false
+  parked.value = false
+  targetProfile.value = 1
+  dialog.value?.close()
+})
+
 function confirm(backup?: Backup) {
   if (!props.snapshot || !authorized.value || !parked.value || props.busy) return
   restore.value = backup
@@ -47,10 +55,10 @@ function backupExport(backup: Backup) {
 </script>
 
 <template>
-  <header class="page-head"><h1>电池校准</h1></header>
+  <header class="page-head"><h2 id="calibration-title" class="flow-title" tabindex="-1">电池校准</h2></header>
   <section v-if="!snapshot" class="card locked-card">
     <span class="icon-box"><LockKeyhole :size="24" aria-hidden="true" /></span>
-    <h2>实车校准待验证</h2>
+    <h3>实车校准待验证</h3>
     <p>需要确认具体车型、固件、原始参数及恢复方法。可在演示会话预览流程。</p>
     <div v-for="[name, risk, reason] in locked" :key="name" class="reading-row">
       <div><strong>{{ name }}</strong><div class="reading-source">{{ reason }}</div></div>
@@ -58,7 +66,7 @@ function backupExport(backup: Backup) {
     </div>
   </section>
   <section v-else class="card">
-    <div class="section-top"><h2>计量模块容量</h2><span class="pill amber">演示</span></div>
+    <div class="section-top"><h3>计量模块容量</h3><span class="pill amber">演示</span></div>
     <label class="select-label profile-select">模拟容量档位
       <select v-model.number="targetProfile" :disabled="busy">
         <option v-for="profile in demoProfiles" :key="profile.profile" :value="profile.profile">
@@ -78,7 +86,7 @@ function backupExport(backup: Backup) {
     </button>
   </section>
   <section class="card" aria-labelledby="backup-title">
-    <div class="section-top"><h2 id="backup-title">参数备份</h2><span class="pill">{{ backups.length }} 份</span></div>
+    <div class="section-top"><h3 id="backup-title">参数备份</h3><span class="pill">{{ backups.length }} 份</span></div>
     <p>演示备份通过 SHA-256 完整性校验，导入后会在本机单独保存。</p>
     <div class="button-row">
       <input ref="fileInput" type="file" accept=".json,application/json" hidden @change="filePicked" />
@@ -107,7 +115,7 @@ function backupExport(backup: Backup) {
   </section>
   <dialog ref="dialog" class="confirm-dialog" aria-labelledby="confirm-title" @close="restore = undefined">
     <form method="dialog">
-      <h2 id="confirm-title">{{ restore ? '确认恢复演示参数' : '确认演示校准' }}</h2>
+      <h3 id="confirm-title">{{ restore ? '确认恢复演示参数' : '确认演示校准' }}</h3>
       <p>由 {{ capacity(snapshot?.capacityMah) }} 调整至 {{ capacity(selected?.capacityMah) }}。</p>
       <p v-if="delta !== null">容量差值 {{ delta > 0 ? '+' : '' }}{{ delta }} Ah。操作前会保存已有参数。</p>
       <div class="button-row"><button class="button secondary" autofocus>取消</button>
