@@ -131,7 +131,7 @@ test('生产 PWA 在线刷新加载新页面，离线时仍能启动', async ({ 
   }
 })
 
-test('通过浏览器 GATT 接口读取标准电量，且诊断保留发现记录', async ({ page }) => {
+test('通过浏览器 GATT 接口读取标准电量，且诊断保留发现记录', async ({ page, isMobile }) => {
   await page.addInitScript(() => {
     const uuid = (number: string) => '0000' + number + '-0000-1000-8000-00805f9b34fb'
     const battery = new EventTarget()
@@ -161,7 +161,12 @@ test('通过浏览器 GATT 接口读取标准电量，且诊断保留发现记�
   await page.goto('/')
   await page.getByText('连接引导', { exact: true }).click()
   const guide = page.locator('.connection-guide')
-  await page.getByRole('button', { name: '搜索九号设备' }).click()
+  if (isMobile) {
+    await page.getByText('找不到车辆？', { exact: true }).click()
+    await page.getByRole('button', { name: '显示附近 BLE 设备' }).click()
+  } else {
+    await page.getByRole('button', { name: '搜索九号设备' }).click()
+  }
   await expect(guide.getByRole('listitem').last()).toHaveAttribute('aria-current', 'step')
   await page.getByRole('button', { name: '查看标准字段' }).click()
   await expect(page.getByRole('progressbar', { name: '标准 BLE 电量' })).toHaveAttribute('value', '54')
@@ -212,7 +217,7 @@ test('连接引导在原处展开，尊重减少动效设置', async ({ page, is
   await expect(guide.getByRole('listitem').last()).toHaveAttribute('aria-current', 'step')
 })
 
-test('配对面板支持已有密钥，鉴权后通过分片 GATT 读取车辆数据', async ({ page }) => {
+test('直接打开 BFG UART 并用已有密钥通过分片 GATT 读取车辆数据', async ({ page, isMobile }) => {
   const source = new TextEncoder().encode('NINELAB_TEST_01')
   const name = new TextDecoder().decode(source)
   const key = '00112233445566778899aabbccddeeff'
@@ -236,7 +241,7 @@ test('配对面板支持已有密钥，鉴权后通过分片 GATT 读取车辆�
     lookup[hex(await cipher.seal(counter, packet(item.module, 1, item.register, Uint8Array.of(item.width))))] =
       hex(await cipher.seal(counter + 1, reply(item.module, 4, item.register, data)))
   }
-  await page.addInitScript(({ name, lookup }) => {
+  await page.addInitScript(({ name, lookup, isMobile }) => {
     const uart = '6e400001-b5a3-f393-e0a9-e50e24dcca9e'
     const rx = Object.assign(new EventTarget(), {
       uuid: uart.replace('0001', '0003'), properties: { notify: true },
@@ -245,8 +250,9 @@ test('配对面板支持已有密钥，鉴权后通过分片 GATT 读取车辆�
     })
     let assembling: number[] = []
     const tx = {
-      uuid: uart.replace('0001', '0002'), properties: { write: true },
-      writeValueWithResponse: async (chunk: Uint8Array) => {
+      uuid: uart.replace('0001', '0002'), properties: { write: true, writeWithoutResponse: true },
+      writeValueWithResponse: async () => { throw new Error('This peripheral uses writes without response') },
+      writeValueWithoutResponse: async (chunk: Uint8Array) => {
         if (chunk.length > 20) throw new Error('BLE mock accepts fragments of up to 20 bytes')
         assembling.push(...chunk)
         if (assembling.length < 3 || assembling.length < assembling[2]! + 13) return
@@ -261,13 +267,23 @@ test('配对面板支持已有密钥，鉴权后通过分片 GATT 读取车辆�
       },
     }
     const service = {
-      uuid: uart, getCharacteristics: async () => [tx, rx],
-      getCharacteristic: async (uuid: string) => uuid === tx.uuid ? tx : rx,
+      uuid: uart,
+      getCharacteristics: async () => {
+        if (!isMobile) throw new DOMException('Use lookup by UUID', 'NotSupportedError')
+        return [tx, rx]
+      },
+      getCharacteristic: async (uuid: string) => {
+        if (isMobile) throw new DOMException('Use characteristic listing', 'NotSupportedError')
+        return uuid === tx.uuid ? tx : rx
+      },
     }
     const gatt = {
       connected: false,
       connect: async () => { gatt.connected = true; return gatt },
       disconnect: () => { gatt.connected = false },
+      getPrimaryServices: async () => isMobile
+        ? [{ uuid: '180f', getCharacteristics: async () => [] }]
+        : [service],
       getPrimaryService: async (uuid: string) => {
         if (uuid !== uart) throw new DOMException('Service not present', 'NotFoundError')
         return service
@@ -277,7 +293,7 @@ test('配对面板支持已有密钥，鉴权后通过分片 GATT 读取车辆�
       configurable: true,
       value: { requestDevice: async () => Object.assign(new EventTarget(), { name, gatt }) },
     })
-  }, { name, lookup })
+  }, { name, lookup, isMobile })
 
   await page.goto('/')
   await page.getByRole('button', { name: '搜索九号设备' }).click()
@@ -325,7 +341,9 @@ test('选择器兼容路径需单独点击，错误可定位且可恢复', async
           if (!isMobile && !('filters' in options)) throw new DOMException('Expected desktop filters', 'NotSupportedError')
           throw { name: 'TypeError', message: 'Unsupported request options (internal private mock detail)' }
         }
-        const expected = isMobile ? { filters: [{ services: [uart] }] } : { acceptAllDevices: true, optionalServices: [uart] }
+        const expected = isMobile
+          ? { filters: [{ services: [uart] }], optionalServices: [uart], acceptAllDevices: false }
+          : { acceptAllDevices: true, optionalServices: [uart] }
         if (attempts !== 2 || JSON.stringify(options) !== JSON.stringify(expected)) {
           throw new DOMException('Unexpected fallback', 'NotSupportedError')
         }

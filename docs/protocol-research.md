@@ -16,7 +16,7 @@ DongAier 的 [`6012db7`](https://github.com/DongAier/Ninebot-BFG/commit/6012db7)
 ## 传输与响应
 
 - 参考源使用 Nordic UART Service `6e400001-b5a3-f393-e0a9-e50e24dcca9e`。通常由中心向 `6e400002-…` 发送，并接收 `6e400003-…` 通知。另有现代滑板车实现公开名称空间不同的 Segway UART UUID。两者都作为候选发现服务。配对目前启用经典 NUS 下的 BFG 版本。
-- 观察公开实现时发现，固定 20 字节写分片与完整写入各有实现。NineLab 用 20 字节分片，并按加密帧长度重组通知。iOS 的实机传输和各车型行为仍需验证。
+- iPhone 默认搜索和 BFG 筛选模式直接按 UUID 连接 UART 服务。特征枚举、事件取值和优先使用无响应写入的策略改编自 [ninebotcal web](https://github.com/yy1142274323/ninebotcal/tree/f56037e44c812dfc93035a8703199fbc17665eb8/web)。NineLab 用 20 字节分片，并按加密帧长度重组通知。iOS 实机传输和各车型行为待验证。
 - 参考 BFG 命令把只读查询和配置修改分开。已解密的读取响应包含帧头、长度、源模块、目的模块、响应类型、寄存器和数据。在明文解析层检查长度、方向、响应类型及候选字段宽度。此处的“格式通过”只反映明文结构；线上完整性须由经验证的加密层提供。
 - 标准 Bluetooth SIG Battery Service `180F / 2A19` 直接给出 0–100 的百分数。Device Information `180A / 2A24, 2A25, 2A26` 可读取设备型号、序列号和固件版本，语义限于公开这些字段的 BLE 设备。[Battery Service](https://www.bluetooth.com/specifications/specs/battery-service/)
 - Web Bluetooth 通常只枚举站点获准访问的服务。列表中的“可见服务”应与原生 GATT 对照工具交叉核查。

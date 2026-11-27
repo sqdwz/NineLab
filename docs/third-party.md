@@ -4,4 +4,4 @@
 
 开发与测试工具包括 Vite、@vitejs/plugin-vue、vue-tsc、Vitest、@types/web-bluetooth、@types/node（MIT）以及 TypeScript、fake-indexeddb、Playwright Test（Apache-2.0）。依赖版本及传递依赖以 package-lock.json 为准。
 
-BFG、ninebotcal、NinebotEnhance、其他车辆项目与 iOS 兼容方案属于调研资料。NineLab 应用逻辑、页面、演示样本及图标底板由本项目独立编写。当前交付保留 NineLab 源码的公开许可由项目所有者决定。
+NineLab 的 BFG UART 服务与特征查找、分片写入参考并改编自 MIT 许可的 [ninebotcal web](https://github.com/yy1142274323/ninebotcal/tree/f56037e44c812dfc93035a8703199fbc17665eb8/web)。版权和许可随生产包发布。当前交付保留 NineLab 源码的公开许可由项目所有者决定。

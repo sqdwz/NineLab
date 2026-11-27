@@ -30,6 +30,7 @@ export const gatt = {
 
 const services = [gatt.uart, gatt.segwayUart, gatt.battery, gatt.device]
 const filterNames = ['Ninebot', 'NINEBOT', 'Segway', 'SEGWAY']
+const characteristicProperties = ['read', 'notify', 'indicate', 'write', 'writeWithoutResponse'] as const
 
 export type SelectionMode = 'ninebot' | 'bfg-compatible' | 'bfg-filtered' | 'nearby'
 
@@ -42,7 +43,7 @@ export const selectionLabels: Record<SelectionMode, string> = {
 
 function selectionOptions(mode: SelectionMode): RequestDeviceOptions {
   if (mode === 'bfg-compatible') return { acceptAllDevices: true, optionalServices: [gatt.uart] }
-  if (mode === 'bfg-filtered') return { filters: [{ services: [gatt.uart] }] }
+  if (mode === 'bfg-filtered') return { filters: [{ services: [gatt.uart] }], optionalServices: [gatt.uart], acceptAllDevices: false }
   if (mode === 'nearby') return { acceptAllDevices: true, optionalServices: [...services] }
   return {
     filters: [
@@ -53,10 +54,32 @@ function selectionOptions(mode: SelectionMode): RequestDeviceOptions {
   }
 }
 
+// NUS characteristic lookup and 20-byte writes adapted from ninebotcal web (MIT).
+async function uartCharacteristics(service: BluetoothRemoteGATTService) {
+  let characteristics: BluetoothRemoteGATTCharacteristic[] = []
+  try {
+    characteristics = await service.getCharacteristics()
+  } catch {
+    // Some Web Bluetooth bridges support lookup by UUID only.
+  }
+  let tx = characteristics.find((item) => item.uuid === gatt.uartWrite)
+  let rx = characteristics.find((item) => item.uuid === gatt.uartNotify)
+  if (!tx) {
+    tx = await service.getCharacteristic(gatt.uartWrite)
+    characteristics.push(tx)
+  }
+  if (!rx) {
+    rx = await service.getCharacteristic(gatt.uartNotify)
+    characteristics.push(rx)
+  }
+  return { tx, rx, characteristics }
+}
+
 export class WebGattTransport implements GattTransport {
   onDisconnect: (() => void) | undefined
   private device: BluetoothDevice | undefined
   private server: BluetoothRemoteGATTServer | undefined
+  private bfgOnly = false
   private generation = 0
   private listeners = new Set<() => void>()
   private stopWatchingDevice: (() => void) | undefined
@@ -74,6 +97,7 @@ export class WebGattTransport implements GattTransport {
     this.stopWatchingDevice?.()
     this.stopWatchingDevice = undefined
     this.device = device
+    this.bfgOnly = mode === 'bfg-compatible' || mode === 'bfg-filtered'
   }
 
   private watchDevice(device: BluetoothDevice) {
@@ -140,6 +164,18 @@ export class WebGattTransport implements GattTransport {
 
   async discover() {
     const server = this.active()
+    if (this.bfgOnly) {
+      let uart: BluetoothRemoteGATTService
+      try {
+        uart = await server.getPrimaryService(gatt.uart)
+      } catch {
+        if (!server.connected) throw new Error('发现服务时蓝牙断开')
+        return []
+      }
+      const description = await this.describeService(uart)
+      if (!server.connected) throw new Error('发现特征时蓝牙断开')
+      return [description]
+    }
     let available: BluetoothRemoteGATTService[] = []
     try {
       available = await server.getPrimaryServices()
@@ -157,41 +193,45 @@ export class WebGattTransport implements GattTransport {
     }
     const result: ServiceInfo[] = []
     for (const service of available) {
-      try {
-        const characteristics = await service.getCharacteristics()
-        result.push({
-          uuid: service.uuid,
-          characteristics: characteristics.map((item) => ({
-            uuid: item.uuid,
-            properties: (['read', 'notify', 'indicate', 'write', 'writeWithoutResponse'] as const)
-              .filter((key) => item.properties[key]),
-          })),
-        })
-      } catch {
-        if (!server.connected) throw new Error('发现特征时蓝牙断开')
-        result.push({ uuid: service.uuid, characteristics: [], error: '特征列表无法读取' })
-      }
+      result.push(await this.describeService(service))
+      if (!server.connected) throw new Error('发现特征时蓝牙断开')
     }
     return result
+  }
+
+  private async describeService(service: BluetoothRemoteGATTService): Promise<ServiceInfo> {
+    try {
+      const characteristics = service.uuid === gatt.uart
+        ? (await uartCharacteristics(service)).characteristics
+        : await service.getCharacteristics()
+      return {
+        uuid: service.uuid,
+        characteristics: characteristics.map((item) => ({
+          uuid: item.uuid,
+          properties: characteristicProperties.filter((key) => item.properties[key]),
+        })),
+      }
+    } catch {
+      return { uuid: service.uuid, characteristics: [], error: '特征列表无法读取' }
+    }
   }
 
   async openBfgChannel(receive: (chunk: Uint8Array) => void): Promise<BfgChannel> {
     const generation = this.generation
     const service = await this.active().getPrimaryService(gatt.uart)
-    const tx = await service.getCharacteristic(gatt.uartWrite)
-    const rx = await service.getCharacteristic(gatt.uartNotify)
-    const sendChunk = tx.properties.write && typeof tx.writeValueWithResponse === 'function'
-      ? tx.writeValueWithResponse.bind(tx)
-      : tx.properties.writeWithoutResponse && typeof tx.writeValueWithoutResponse === 'function'
-        ? tx.writeValueWithoutResponse.bind(tx)
+    const { tx, rx } = await uartCharacteristics(service)
+    const sendChunk = tx.properties.writeWithoutResponse && typeof tx.writeValueWithoutResponse === 'function'
+      ? tx.writeValueWithoutResponse.bind(tx)
+      : tx.properties.write && typeof tx.writeValueWithResponse === 'function'
+        ? tx.writeValueWithResponse.bind(tx)
         : (tx.properties.write || tx.properties.writeWithoutResponse) && typeof tx.writeValue === 'function'
           ? tx.writeValue.bind(tx) : undefined
     if (!sendChunk || !(rx.properties.notify || rx.properties.indicate)) throw new Error('蓝牙通道不支持读写通知。')
 
     let closed = false
     const open = () => !closed && generation === this.generation && this.connected
-    const notify = () => {
-      const value = rx.value
+    const notify = (event: Event) => {
+      const value = (event.target as BluetoothRemoteGATTCharacteristic | null)?.value ?? rx.value
       if (open() && value) receive(new Uint8Array(value.buffer, value.byteOffset, value.byteLength).slice())
     }
     const close = () => {
