@@ -34,9 +34,13 @@ self.addEventListener('fetch', event => {
   if (event.request.method !== 'GET' || !event.request.url.startsWith(self.registration.scope)) return;
   event.respondWith(caches.open(cacheName).then(async cache => {
     if (event.request.mode === 'navigate') {
-      // Use the same shell as the cached assets while this worker controls the page.
-      const shell = await cache.match('./index.html');
-      if (shell) return shell;
+      try {
+        return await fetch(event.request, { cache: 'no-cache' });
+      } catch (error) {
+        const shell = await cache.match('./index.html');
+        if (shell) return shell;
+        throw error;
+      }
     }
     // Static release assets are immutable across request modes and Origin headers.
     return (await cache.match(event.request, { ignoreVary: true })) || fetch(event.request);

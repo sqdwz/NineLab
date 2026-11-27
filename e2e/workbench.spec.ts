@@ -1,3 +1,6 @@
+import { readFile } from 'node:fs/promises'
+import { createServer } from 'node:http'
+import { extname, resolve, sep } from 'node:path'
 import { expect, test } from '@playwright/test'
 import { BfgCipher, bfgBootstrapMask, joinBytes, sealBootstrap } from '../src/protocol/bfg-crypto'
 import { parseBfgKey } from '../src/protocol/bfg-session'
@@ -83,15 +86,49 @@ test('窄屏深色模式可滚动，底栏不挡住内容', async ({ page, isMob
   expect(text.y + text.height).toBeLessThan(nav.y)
 })
 
-test('生产构建离线启动', async ({ page, context, browserName }) => {
+test('生产 PWA 在线刷新加载新页面，离线时仍能启动', async ({ page, context, browserName }) => {
   test.skip(browserName !== 'chromium', 'Windows Playwright WebKit 的离线模拟不覆盖 Service Worker')
-  await page.goto('/')
-  await page.evaluate(() => navigator.serviceWorker.ready)
-  await page.reload()
-  await page.waitForFunction(() => Boolean(navigator.serviceWorker.controller))
-  await context.setOffline(true)
-  await page.reload()
-  await expect(page.getByRole('heading', { name: '连接车辆' })).toBeVisible()
+  const directory = resolve('dist')
+  const types: Record<string, string> = {
+    '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.css': 'text/css',
+    '.png': 'image/png', '.webmanifest': 'application/manifest+json',
+  }
+  let release = 'one'
+  const server = createServer(async (request, response) => {
+    const pathname = new URL(request.url ?? '/', 'http://127.0.0.1').pathname
+    const file = resolve(directory, pathname.slice(1) || 'index.html')
+    if (!file.startsWith(directory + sep)) { response.writeHead(404).end(); return }
+    try {
+      const body = await readFile(file)
+      const extension = extname(file)
+      const payload = extension === '.html' ? body.toString('utf8').replace('</head>',
+        '<meta name="qa-release" content="' + release + '" /></head>') : body
+      response.writeHead(200, { 'Content-Type': types[extension] ?? 'application/octet-stream', 'Cache-Control': 'no-store' })
+      response.end(payload)
+    } catch {
+      response.writeHead(404).end()
+    }
+  })
+  await new Promise<void>((done) => server.listen(0, '127.0.0.1', done))
+  try {
+    const address = server.address()
+    if (!address || typeof address === 'string') throw new Error('PWA test server address is unavailable')
+    await page.goto('http://127.0.0.1:' + address.port + '/')
+    await page.evaluate(() => navigator.serviceWorker.ready)
+    await page.waitForFunction(() => Boolean(navigator.serviceWorker.controller))
+    const marker = page.locator('meta[name="qa-release"]')
+    await expect(marker).toHaveAttribute('content', 'one')
+    release = 'two'
+    await page.reload()
+    await expect(marker).toHaveAttribute('content', 'two')
+
+    await context.setOffline(true)
+    await page.reload()
+    await expect(page.getByRole('heading', { name: '连接车辆' })).toBeVisible()
+    await expect(marker).toHaveAttribute('content', 'one')
+  } finally {
+    await new Promise<void>((done) => server.close(() => done()))
+  }
 })
 
 test('通过浏览器 GATT 接口读取标准电量，且诊断保留发现记录', async ({ page }) => {
