@@ -161,12 +161,8 @@ test('通过浏览器 GATT 接口读取标准电量，且诊断保留发现记�
   await page.goto('/')
   await page.getByText('连接引导', { exact: true }).click()
   const guide = page.locator('.connection-guide')
-  if (isMobile) {
-    await page.getByText('找不到车辆？', { exact: true }).click()
-    await page.getByRole('button', { name: '显示附近 BLE 设备' }).click()
-  } else {
-    await page.getByRole('button', { name: '搜索九号设备' }).click()
-  }
+  if (isMobile) await page.getByLabel('蓝牙筛选').selectOption('nearby')
+  await page.getByRole('button', { name: '搜索蓝牙设备' }).click()
   await expect(guide.getByRole('listitem').last()).toHaveAttribute('aria-current', 'step')
   await page.getByRole('button', { name: '查看标准字段' }).click()
   await expect(page.getByRole('progressbar', { name: '标准 BLE 电量' })).toHaveAttribute('value', '54')
@@ -209,7 +205,7 @@ test('连接引导在原处展开，尊重减少动效设置', async ({ page, is
   }
   await expect(guide.locator('.guide-icon').first()).toHaveCSS('animation-name', 'none')
   await expect(page.getByRole('dialog')).toHaveCount(0)
-  await expect(page.getByRole('button', { name: '搜索九号设备' })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: '搜索蓝牙设备' })).toHaveCount(0)
   await page.getByRole('button', { name: '体验演示' }).click()
   await expect(page).toHaveURL(/#read$/)
   await expect(page.getByRole('heading', { name: '电池读取' })).toBeFocused()
@@ -296,7 +292,7 @@ test('直接打开 BFG UART 并用已有密钥通过分片 GATT 读取车辆数�
   }, { name, lookup, isMobile })
 
   await page.goto('/')
-  await page.getByRole('button', { name: '搜索九号设备' }).click()
+  await page.getByRole('button', { name: '搜索蓝牙设备' }).click()
   const auth = page.getByRole('region', { name: '车辆配对与认证' })
   await expect(auth).toBeVisible()
   await expect(page.getByRole('button', { name: '查看标准字段' })).toHaveCount(0)
@@ -317,7 +313,7 @@ test('直接打开 BFG UART 并用已有密钥通过分片 GATT 读取车辆数�
   expect(logged).not.toContain('SIMULATED12345')
 })
 
-test('选择器兼容路径需单独点击，错误可定位且可恢复', async ({ page, isMobile }) => {
+test('按蓝牙筛选条件打开选择器，错误可恢复且不记录名称前缀', async ({ page, isMobile }) => {
   await page.addInitScript(({ isMobile }) => {
     const uart = '6e400001-b5a3-f393-e0a9-e50e24dcca9e'
     const remote = {
@@ -341,26 +337,47 @@ test('选择器兼容路径需单独点击，错误可定位且可恢复', async
           if (!isMobile && !('filters' in options)) throw new DOMException('Expected desktop filters', 'NotSupportedError')
           throw { name: 'TypeError', message: 'Unsupported request options (internal private mock detail)' }
         }
-        const expected = isMobile
-          ? { filters: [{ services: [uart] }], optionalServices: [uart], acceptAllDevices: false }
-          : { acceptAllDevices: true, optionalServices: [uart] }
-        if (attempts !== 2 || JSON.stringify(options) !== JSON.stringify(expected)) {
-          throw new DOMException('Unexpected fallback', 'NotSupportedError')
+        if (attempts === 2) {
+          const expected = isMobile
+            ? { filters: [{ services: [uart] }], optionalServices: [uart], acceptAllDevices: false }
+            : { acceptAllDevices: true, optionalServices: [uart] }
+          if (JSON.stringify(options) !== JSON.stringify(expected)) {
+            throw new DOMException('Unexpected fallback', 'NotSupportedError')
+          }
+        } else {
+          if (attempts !== 3 || !('filters' in options) || options.filters.length !== 1 ||
+              options.filters[0]?.namePrefix !== 'TestPrefix' || !options.optionalServices?.includes(uart)) {
+            throw new DOMException('Unexpected prefix filter', 'NotSupportedError')
+          }
         }
         return chosen
       } },
     })
   }, { isMobile })
   await page.goto('/')
-  await page.getByRole('button', { name: '搜索九号设备' }).click()
+  const filter = page.getByLabel('蓝牙筛选')
+  const search = page.getByRole('button', { name: '搜索蓝牙设备' })
+  await expect(filter).toHaveValue(isMobile ? 'bfg-compatible' : 'ninebot')
+  await search.click()
   await expect(page.locator('#connection').getByRole('status')).toContainText('未接受这组搜索条件')
   const log = page.locator('#diagnostic .log-output')
   await expect(log).toContainText('设备选择器 · ' + (isMobile ? 'iPhone 兼容' : '九号筛选') + ' · TypeError')
   await expect(log).not.toContainText('private mock detail')
   await expect(log).not.toContainText('设备已选中')
-  await page.getByText('找不到车辆？', { exact: true }).click()
-  await page.getByRole('button', { name: isMobile ? '仅按 BFG 服务筛选' : '兼容方式搜索' }).click()
+  await filter.selectOption(isMobile ? 'bfg-filtered' : 'bfg-compatible')
+  await search.click()
   await expect(page.getByText('已连接 · 未认证', { exact: true })).toBeVisible()
   await expect(log).toContainText('设备已选中')
   await expect(log).toContainText('GATT 已建立')
+  await page.getByRole('button', { name: '断开', exact: true }).click()
+  await filter.selectOption('name-prefix')
+  const input = page.getByLabel('设备名称前缀')
+  await expect(search).toBeDisabled()
+  await input.fill('   ')
+  await expect(search).toBeDisabled()
+  await input.fill('  TestPrefix  ')
+  await search.click()
+  await expect(page.getByText('已连接 · 未认证', { exact: true })).toBeVisible()
+  await expect(log).toContainText('设备已选中 · 名称前缀')
+  await expect(log).not.toContainText('TestPrefix')
 })

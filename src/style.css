@@ -107,8 +107,10 @@ code { overflow-wrap: anywhere; font-family: ui-monospace, SFMono-Regular, Conso
 .secondary { background: var(--surface); color: var(--text); border-color: var(--border); }
 .secondary:not(:disabled):hover { background: var(--panel); }
 .main-actions { margin-top: 20px; }
-.advanced { margin-top: 20px; border-top: 1px solid var(--border); padding-top: 8px; }
-.advanced .button { margin-top: 9px; }
+.connection-filters { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr)); gap: 10px; max-width: 510px; margin-top: 16px; }
+.connection-filters .select-label { display: grid; gap: 5px; font-size: .87rem; }
+.connection-filters select, .connection-filters input { width: 100%; min-width: 0; font-size: 1rem; }
+.connection-filters input { min-height: 44px; color: var(--text); background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 6px 9px; }
 summary { min-height: 40px; align-content: center; color: var(--accent-copy); font-weight: 650; }
 .text-link { display: inline-flex; align-items: center; min-height: 44px; font-size: .9rem; font-weight: 650; text-underline-offset: 3px; }
 .compact-list { margin: 12px 0 2px; }

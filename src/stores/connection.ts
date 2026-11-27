@@ -1,5 +1,5 @@
 import { shallowReactive } from 'vue'
-import type { GattTransport, SelectionMode } from '../bluetooth/transport'
+import type { DeviceSelection, GattTransport } from '../bluetooth/transport'
 import { gatt, selectionLabels } from '../bluetooth/transport'
 import { bluetoothFailure } from '../bluetooth/errors'
 import type { Direction, FieldId, Readings, Reading, ServiceInfo } from '../domain'
@@ -128,7 +128,7 @@ export function createConnection(
     }, 1000)
   }
 
-  async function connect(mode: SelectionMode) {
+  async function connect(selection: DeviceSelection) {
     if (['searching', 'connecting', 'connected', 'reading'].includes(data.state)) return
     clearTimeout(retryTimer)
     clearSnapshot()
@@ -136,12 +136,13 @@ export function createConnection(
     data.state = 'searching'
     data.message = ''
     retries = 0
+    const label = selectionLabels[typeof selection === 'string' ? selection : 'name-prefix']
     try {
-      await transport.select(mode)
+      await transport.select(selection)
     } catch (error) {
       if (ticket !== generation) return
       const details = bluetoothFailure(error)
-      const diagnostic = '设备选择器 · ' + selectionLabels[mode] + ' · ' + details.name + ' · ' + details.reason
+      const diagnostic = '设备选择器 · ' + label + ' · ' + details.name + ' · ' + details.reason
       if (details.reason === 'unselected') {
         data.state = 'idle'
         data.message = details.hint
@@ -156,7 +157,7 @@ export function createConnection(
     data.selected = true
     data.lastServices = []
     data.name = transport.name
-    log('system', '设备已选中 · ' + selectionLabels[mode])
+    log('system', '设备已选中 · ' + label)
     await reconnect(ticket)
   }
 

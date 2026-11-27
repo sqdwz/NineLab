@@ -21,7 +21,7 @@ export function bluetoothFailure(error: unknown) {
     return { name, reason: 'unselected' as const, hint: '未选择设备。如果列表为空，请唤醒车辆后换一种搜索方式。' }
   }
   if (name === 'TypeError' || name === 'NotSupportedError') {
-    return { name, reason: 'unsupported' as const, hint: '当前浏览器未接受这组搜索条件。可在「找不到车辆？」中切换搜索方式。' }
+    return { name, reason: 'unsupported' as const, hint: '当前浏览器未接受这组搜索条件。请切换「蓝牙筛选」后重试。' }
   }
   return { name, reason: 'other' as const, hint: '请确认蓝牙已开启，再切换搜索方式重试。' }
 }

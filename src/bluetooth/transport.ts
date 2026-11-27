@@ -2,7 +2,7 @@ import type { ServiceInfo } from '../domain'
 import type { BfgChannel, OpenBfgChannel } from '../protocol/bfg-session'
 
 export interface GattTransport {
-  select(mode: SelectionMode): Promise<void>
+  select(selection: DeviceSelection): Promise<void>
   connect(): Promise<void>
   disconnect(): void
   discover(): Promise<ServiceInfo[]>
@@ -32,16 +32,21 @@ const services = [gatt.uart, gatt.segwayUart, gatt.battery, gatt.device]
 const filterNames = ['Ninebot', 'NINEBOT', 'Segway', 'SEGWAY']
 const characteristicProperties = ['read', 'notify', 'indicate', 'write', 'writeWithoutResponse'] as const
 
-export type SelectionMode = 'ninebot' | 'bfg-compatible' | 'bfg-filtered' | 'nearby'
+export type SelectionMode = 'ninebot' | 'bfg-compatible' | 'bfg-filtered' | 'name-prefix' | 'nearby'
+export type DeviceSelection = Exclude<SelectionMode, 'name-prefix'> | { namePrefix: string }
 
 export const selectionLabels: Record<SelectionMode, string> = {
   ninebot: '九号筛选',
   'bfg-compatible': 'iPhone 兼容',
   'bfg-filtered': '仅 BFG 服务',
+  'name-prefix': '名称前缀',
   nearby: '附近 BLE',
 }
 
-function selectionOptions(mode: SelectionMode): RequestDeviceOptions {
+function selectionOptions(mode: DeviceSelection): RequestDeviceOptions {
+  if (typeof mode !== 'string') {
+    return { filters: [{ namePrefix: mode.namePrefix }], optionalServices: [...services] }
+  }
   if (mode === 'bfg-compatible') return { acceptAllDevices: true, optionalServices: [gatt.uart] }
   if (mode === 'bfg-filtered') return { filters: [{ services: [gatt.uart] }], optionalServices: [gatt.uart], acceptAllDevices: false }
   if (mode === 'nearby') return { acceptAllDevices: true, optionalServices: [...services] }
@@ -88,7 +93,7 @@ export class WebGattTransport implements GattTransport {
   get selected() { return Boolean(this.device) }
   get connected() { return Boolean(this.server?.connected) }
 
-  async select(mode: SelectionMode) {
+  async select(mode: DeviceSelection) {
     const generation = this.generation
     // Invoke the native picker directly in the click handler's task.
     const device = await navigator.bluetooth.requestDevice(selectionOptions(mode))
