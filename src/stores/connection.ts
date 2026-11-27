@@ -3,12 +3,20 @@ import type { GattTransport } from '../bluetooth/transport'
 import { gatt } from '../bluetooth/transport'
 import type { Direction, FieldId, Readings, Reading, ServiceInfo } from '../domain'
 import { decodeStandard, standardFields } from '../protocol/standard-battery'
+import { BfgSession, parseBfgKey, StoredBfgKey } from '../protocol/bfg-session'
+import type { AuthStage } from '../protocol/bfg-session'
+import { BfgError } from '../protocol/bfg-crypto'
+import { hexBytes } from '../protocol/registers'
 
 export type ConnectionState = 'idle' | 'searching' | 'connecting' | 'connected' | 'reading' | 'lost' | 'error'
 export const connectionLabels: Record<ConnectionState, string> = {
   idle: '未连接', searching: '搜索中', connecting: '连接中', connected: '已连接 · 未认证',
   reading: '正在读取', lost: '连接已断开', error: '通信异常',
 }
+
+export type AuthState = 'idle' | 'ready' | 'failed' | 'key-required' | AuthStage
+export const isAuthorizing = (state: AuthState) =>
+  state === 'checking' || state === 'confirming' || state === 'authenticating'
 
 export type RecordLog = (
   direction: Direction, message: string, details?: { raw?: string; decoded?: string; duration?: number; check?: string }
@@ -33,12 +41,21 @@ export function createConnection(
     state: 'idle' as ConnectionState,
     name: '', message: '', services: [] as ServiceInfo[], readings: {} as Readings,
     lastServices: [] as ServiceInfo[], selected: false, subscribed: false, missedSubscription: false,
+    bfgAvailable: false, standardAvailable: false, auth: 'idle' as AuthState, authMessage: '', generatedKeyAvailable: false,
   })
   let generation = 0
   let retries = 0
   let retryTimer: ReturnType<typeof setTimeout> | undefined
+  let bfg: BfgSession | undefined
+  let generatedKey: Uint8Array | undefined
 
   function clearSnapshot() {
+    bfg?.close()
+    bfg = undefined
+    data.auth = 'idle'
+    data.authMessage = ''
+    data.bfgAvailable = false
+    data.standardAvailable = false
     data.services = []
     data.readings = {}
     data.subscribed = false
@@ -73,6 +90,15 @@ export function createConnection(
       assertActive(ticket)
       data.services = services
       data.lastServices = services
+      const uart = services.find((service) => service.uuid === gatt.uart)
+      const uartWrite = uart?.characteristics.find((item) => item.uuid === gatt.uartWrite)
+      const uartNotify = uart?.characteristics.find((item) => item.uuid === gatt.uartNotify)
+      data.bfgAvailable = Boolean(transport.openBfgChannel &&
+        uartWrite?.properties.some((p) => p === 'write' || p === 'writeWithoutResponse') &&
+        uartNotify?.properties.some((p) => p === 'notify' || p === 'indicate'))
+      data.standardAvailable = standardFields.some(({ service, characteristic }) =>
+        services.some((group) => group.uuid === service && group.characteristics.some((item) =>
+          item.uuid === characteristic && item.properties.includes('read'))))
       data.state = 'connected'
       data.message = ''
       log('system', 'GATT 已建立，发现 ' + services.length + ' 个可见服务', { duration: performance.now() - started })
@@ -108,6 +134,7 @@ export function createConnection(
     try {
       await transport.select(broad)
       if (ticket !== generation) return
+      forgetKey()
       data.selected = true
       data.lastServices = []
       data.name = transport.name
@@ -140,13 +167,88 @@ export function createConnection(
     log('system', '已主动断开连接')
   }
 
+  function forgetKey() {
+    generatedKey?.fill(0)
+    generatedKey = undefined
+    data.generatedKeyAvailable = false
+  }
+
+  function revealKey() {
+    return generatedKey ? hexBytes(generatedKey).replaceAll(' ', '') : ''
+  }
+
+  async function authorize(method: { pair: true } | { key?: string }) {
+    const open = transport.openBfgChannel
+    if (!open || !data.bfgAvailable || data.state !== 'connected' || isAuthorizing(data.auth) || data.auth === 'ready') return
+    const ticket = generation
+    let key: Uint8Array | undefined
+    data.authMessage = ''
+    if ('pair' in method && (data.generatedKeyAvailable || data.auth === 'key-required')) return
+    if (!('pair' in method)) {
+      try {
+        if (method.key !== undefined) key = parseBfgKey(method.key)
+        else if (generatedKey) key = new Uint8Array(generatedKey)
+        else throw new BfgError('请提供已有配对密钥。')
+      } catch (error) {
+        data.authMessage = error instanceof BfgError ? error.message : '无法使用此密钥。'
+        return
+      }
+    }
+    bfg?.close()
+    const session = new BfgSession((receive) => open.call(transport, receive))
+    bfg = session
+    data.auth = 'checking'
+    log('system', '开始 BFG 车辆认证')
+    try {
+      await withTimeout(session.authorize(transport.name, key ? { kind: 'existing', key } : {
+        kind: 'pair',
+        onKey: (value) => {
+          if (bfg !== session || ticket !== generation) {
+            value.fill(0)
+            return
+          }
+          generatedKey = value
+          data.generatedKeyAvailable = true
+        },
+      }, (stage) => {
+        if (bfg === session && ticket === generation) data.auth = stage
+      }), 80000, '车辆认证超时。')
+      assertActive(ticket)
+      data.auth = 'ready'
+      data.message = ''
+      log('system', 'BFG 车辆认证成功')
+    } catch (error) {
+      session.close()
+      if (bfg !== session || ticket !== generation) return
+      bfg = undefined
+      const phase = data.auth as AuthState
+      data.auth = error instanceof StoredBfgKey ? 'key-required' : 'failed'
+      data.authMessage = error instanceof BfgError ? error.message :
+        error instanceof DOMException && error.name === 'TimeoutError'
+          ? phase === 'confirming' ? '等待车端确认超时，配对结果需在车端核对。'
+            : phase === 'authenticating' ? '鉴权响应超时，请核对密钥并确认官方 App 已断开。'
+              : '车辆握手超时。请确认车辆已唤醒、官方 App 未占用连接并核对车型协议。'
+          : '无法建立车辆认证会话。请确认车辆已唤醒、官方 App 未占用蓝牙连接，并核对密钥。'
+      log('system', error instanceof StoredBfgKey ? 'BFG 车辆已有配对' : 'BFG 车辆认证未完成')
+    } finally {
+      key?.fill(0)
+    }
+  }
+
   async function read() {
-    if (data.state !== 'connected' || !transport.connected) return
+    if (data.state !== 'connected' || !transport.connected || isAuthorizing(data.auth)) return
     const ticket = generation
     data.state = 'reading'
     data.message = ''
     let successes = 0
     try {
+      if (bfg && data.auth === 'ready') {
+        successes += await bfg.read((field, reading) => {
+          assertActive(ticket)
+          setReading(field, reading)
+        }, (message) => { if (generation === ticket) log('system', message) })
+        assertActive(ticket)
+      }
       for (const { field, service, characteristic } of standardFields) {
         const properties = data.services.find((group) => group.uuid === service)
           ?.characteristics.find((item) => item.uuid === characteristic)?.properties
@@ -200,14 +302,17 @@ export function createConnection(
           log('system', '设备未接受标准 BLE 电量通知订阅')
         }
       }
-      data.message = successes ? '标准字段已更新。' : '此设备未返回可用的标准字段，可导出 GATT 发现记录。'
+      data.message = successes ? '车辆读数已更新。' : data.bfgAvailable && data.auth !== 'ready'
+        ? '请先在连接区完成车辆配对或密钥认证。'
+        : '此设备未返回可用字段，可导出 GATT 发现记录。'
     } catch (error) {
       fail(ticket, error instanceof DOMException && error.name === 'TimeoutError'
-        ? error.message + '，已结束本次连接。' : '读取中断，请重新连接。')
+        ? error.message + '，已结束本次连接。' : error instanceof BfgError
+          ? error.message + ' 请重新连接并认证。' : '读取中断，请重新连接。')
     } finally {
       if (ticket === generation) data.state = 'connected'
     }
   }
 
-  return { data, connect, disconnect, retry, read }
+  return { data, connect, disconnect, retry, read, authorize, revealKey, forgetKey }
 }

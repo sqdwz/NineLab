@@ -7,7 +7,7 @@ import CalibrationView from './views/CalibrationView.vue'
 import DiagnosticView from './views/DiagnosticView.vue'
 import { detectCapabilities } from './bluetooth/capabilities'
 import { WebGattTransport } from './bluetooth/transport'
-import { createConnection } from './stores/connection'
+import { createConnection, isAuthorizing } from './stores/connection'
 import { createDemo } from './stores/demo'
 import { createBackup, listBackups, saveBackup, validateBackup } from './storage/backups'
 import type { Backup } from './storage/backups'
@@ -15,7 +15,7 @@ import { runDemoCalibration, sameIdentity } from './calibration/calibration'
 import type { MeterParameters } from './calibration/calibration'
 import { csv, exportFile } from './storage/export'
 import type { Direction, FieldId, LogEntry } from './domain'
-import { fieldLabels, fieldUnits, originLabels } from './domain'
+import { fieldLabels, fieldUnits, readingLabel } from './domain'
 
 const sections = [
   { id: 'connection', label: '连接', icon: Bluetooth },
@@ -46,6 +46,10 @@ const live = createConnection(new WebGattTransport(), (...args) => record('live'
 const simulator = createDemo((...args) => record('demo', ...args))
 const readings = computed(() => demo.value ? simulator.readings.value : live.data.readings)
 const connected = computed(() => ['connected', 'reading'].includes(live.data.state))
+const readable = computed(() => connected.value && !isAuthorizing(live.data.auth) &&
+  (live.data.standardAvailable || live.data.auth === 'ready'))
+const needsAuthentication = computed(() => connected.value && live.data.bfgAvailable &&
+  live.data.auth !== 'ready' && !live.data.standardAvailable)
 const activeLogs = computed(() => logs.value.filter((entry) => entry.mode === (demo.value ? 'demo' : 'live')))
 
 function sectionAtHash(): FlowSection | undefined {
@@ -102,7 +106,17 @@ function refresh() {
 }
 function openReading() {
   navigate('read', true)
-  if (demo.value || !Object.keys(readings.value).length) refresh()
+  if (demo.value || readable.value) refresh()
+}
+
+function authenticate(key?: string) {
+  polling.value = false
+  void live.authorize({ key })
+}
+
+function pair() {
+  polling.value = false
+  void live.authorize({ pair: true })
 }
 
 watch(polling, (enabled) => {
@@ -173,7 +187,7 @@ async function calibrate(target: MeterParameters, restore?: Backup) {
 function exportReadings() {
   const rows = (Object.entries(readings.value) as Array<[FieldId, NonNullable<typeof readings.value[FieldId]>]>)
     .map(([id, reading]) => [fieldLabels[id], id === 'serial' && !demo.value ? '已隐藏' : reading.value,
-      fieldUnits[id], originLabels[reading.origin], reading.source, reading.raw, reading.time])
+      fieldUnits[id], readingLabel(reading), reading.source, reading.raw, reading.time])
   void exportFile(demo.value ? 'ninelab-demo-readings.csv' : 'ninelab-readings.csv',
     csv([['字段', '结果', '单位', '状态', '来源', '原始数据', '读取时间'], ...rows]), 'text/csv;charset=utf-8')
 }
@@ -194,6 +208,7 @@ onMounted(() => {
 onUnmounted(() => {
   clearInterval(timer)
   live.disconnect()
+  live.forgetKey()
   document.removeEventListener('visibilitychange', updateEnvironment)
   window.removeEventListener('focus', updateEnvironment)
   window.removeEventListener('scroll', trackSection)
@@ -221,11 +236,12 @@ onUnmounted(() => {
       <main ref="main" class="page-frame">
         <h1 class="sr-only">NineLab 九号电池实验室</h1>
         <section id="connection" class="flow-section" aria-labelledby="connection-title">
-          <ConnectionView :connection="live.data" :capabilities="capabilities" :demo="demo"
-            @connect="live.connect" @retry="live.retry" @disconnect="disconnect" @demo="showDemo" @read="openReading" />
+          <ConnectionView :connection="live.data" :capabilities="capabilities" :demo="demo" :pairing-key="live.revealKey"
+            @connect="live.connect" @retry="live.retry" @disconnect="disconnect" @demo="showDemo" @read="openReading"
+            @authenticate="authenticate" @pair="pair" />
         </section>
         <section id="read" class="flow-section" aria-labelledby="read-title">
-          <ReaderView :readings="readings" :demo="demo" :connected="connected"
+          <ReaderView :readings="readings" :demo="demo" :connected="readable" :needs-authentication="needsAuthentication"
             :reading="live.data.state === 'reading'" :polling="polling" @refresh="refresh" @toggle-polling="polling = !polling" @export="exportReadings" />
         </section>
         <section id="calibration" class="flow-section" aria-labelledby="calibration-title">

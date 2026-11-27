@@ -1,4 +1,5 @@
 import type { ServiceInfo } from '../domain'
+import type { BfgChannel, OpenBfgChannel } from '../protocol/bfg-session'
 
 export interface GattTransport {
   select(broad: boolean): Promise<void>
@@ -7,6 +8,7 @@ export interface GattTransport {
   discover(): Promise<ServiceInfo[]>
   read(service: string, characteristic: string): Promise<DataView>
   subscribe(service: string, characteristic: string, handler: (value: DataView) => void): Promise<void>
+  openBfgChannel?: OpenBfgChannel
   onDisconnect: (() => void) | undefined
   readonly name: string
   readonly selected: boolean
@@ -19,6 +21,8 @@ export function assigned(number: string) {
 
 export const gatt = {
   uart: '6e400001-b5a3-f393-e0a9-e50e24dcca9e',
+  uartWrite: '6e400002-b5a3-f393-e0a9-e50e24dcca9e',
+  uartNotify: '6e400003-b5a3-f393-e0a9-e50e24dcca9e',
   segwayUart: '6e400001-0000-0000-006e-696e65626f74',
   battery: assigned('180f'), level: assigned('2a19'),
   device: assigned('180a'), model: assigned('2a24'), serial: assigned('2a25'), firmware: assigned('2a26'),
@@ -92,7 +96,21 @@ export class WebGattTransport implements GattTransport {
 
   async discover() {
     const server = this.active()
-    const available = await server.getPrimaryServices()
+    let available: BluetoothRemoteGATTService[] = []
+    try {
+      available = await server.getPrimaryServices()
+    } catch {
+      if (!server.connected) throw new Error('发现服务时蓝牙断开')
+    }
+    if (!available.length) {
+      for (const uuid of services) {
+        try {
+          available.push(await server.getPrimaryService(uuid))
+        } catch {
+          if (!server.connected) throw new Error('发现服务时蓝牙断开')
+        }
+      }
+    }
     const result: ServiceInfo[] = []
     for (const service of available) {
       try {
@@ -111,6 +129,52 @@ export class WebGattTransport implements GattTransport {
       }
     }
     return result
+  }
+
+  async openBfgChannel(receive: (chunk: Uint8Array) => void): Promise<BfgChannel> {
+    const generation = this.generation
+    const service = await this.active().getPrimaryService(gatt.uart)
+    const tx = await service.getCharacteristic(gatt.uartWrite)
+    const rx = await service.getCharacteristic(gatt.uartNotify)
+    const sendChunk = tx.properties.write && typeof tx.writeValueWithResponse === 'function'
+      ? tx.writeValueWithResponse.bind(tx)
+      : tx.properties.writeWithoutResponse && typeof tx.writeValueWithoutResponse === 'function'
+        ? tx.writeValueWithoutResponse.bind(tx)
+        : (tx.properties.write || tx.properties.writeWithoutResponse) && typeof tx.writeValue === 'function'
+          ? tx.writeValue.bind(tx) : undefined
+    if (!sendChunk || !(rx.properties.notify || rx.properties.indicate)) throw new Error('蓝牙通道不支持读写通知。')
+
+    let closed = false
+    const open = () => !closed && generation === this.generation && this.connected
+    const notify = () => {
+      const value = rx.value
+      if (open() && value) receive(new Uint8Array(value.buffer, value.byteOffset, value.byteLength).slice())
+    }
+    const close = () => {
+      closed = true
+      rx.removeEventListener('characteristicvaluechanged', notify)
+      this.listeners.delete(close)
+    }
+    if (!open()) throw new DOMException('车辆会话已结束。', 'AbortError')
+    this.listeners.add(close)
+    rx.addEventListener('characteristicvaluechanged', notify)
+    try {
+      await rx.startNotifications()
+      if (!open()) throw new DOMException('车辆会话已结束。', 'AbortError')
+    } catch (error) {
+      close()
+      throw error
+    }
+
+    return {
+      close,
+      send: async (data) => {
+        for (let offset = 0; offset < data.length; offset += 20) {
+          if (!open()) throw new DOMException('车辆会话已结束。', 'AbortError')
+          await sendChunk(data.slice(offset, offset + 20))
+        }
+      },
+    }
   }
 
   private async standardCharacteristic(service: string, characteristic: string) {

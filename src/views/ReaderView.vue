@@ -2,10 +2,10 @@
 import { computed } from 'vue'
 import { Battery, Download, Pause, Play, RefreshCw, Thermometer, Zap, Gauge, BatteryMedium, Activity } from '@lucide/vue'
 import type { FieldId, Readings } from '../domain'
-import { fieldLabels, fieldUnits, originLabels } from '../domain'
+import { fieldLabels, fieldUnits, readingLabel } from '../domain'
 import { registerClues, hexNumber } from '../protocol/registers'
 
-const props = defineProps<{ readings: Readings; demo: boolean; connected: boolean; reading: boolean; polling: boolean }>()
+const props = defineProps<{ readings: Readings; demo: boolean; connected: boolean; reading: boolean; polling: boolean; needsAuthentication: boolean }>()
 const emit = defineEmits<{ refresh: []; togglePolling: []; export: [] }>()
 const metrics = [
   { id: 'voltage', icon: Zap }, { id: 'remainingCapacity', icon: BatteryMedium },
@@ -37,12 +37,13 @@ const clueOf = (id: FieldId) => registerClues.find((item) => item.field === id)
     <div class="section-top">
       <span class="section-label"><Battery :size="21" aria-hidden="true" />
         <h3 id="soc-title">{{ socId ? fieldLabels[socId] : '当前电量' }}</h3></span>
-      <span class="pill" :class="demo ? 'amber' : 'green'">{{ soc ? originLabels[soc.origin] : '未读取' }}</span>
+      <span class="pill" :class="demo ? 'amber' : 'green'">{{ soc ? readingLabel(soc) : '未读取' }}</span>
     </div>
     <div class="soc-number">{{ soc?.value ?? '—' }}<span v-if="soc">%</span></div>
     <progress v-if="soc" class="soc-progress" :value="Number(soc.value)" max="100" :aria-label="socId ? fieldLabels[socId] : '当前电量'"></progress>
     <div v-else class="progress-track" aria-hidden="true"></div>
     <p v-if="socId === 'standardSoc'">设备公开的标准 Battery Level。仪表和计量模块 SOC 需单独核验。</p>
+    <p v-else-if="needsAuthentication && !soc">请先在连接区完成车辆认证。</p>
     <p v-else>{{ soc ? soc.source : '等待车辆或 BLE 设备返回数据。' }}</p>
   </section>
 
@@ -50,7 +51,7 @@ const clueOf = (id: FieldId) => registerClues.find((item) => item.field === id)
     <section v-for="{id, icon} of metrics" :key="id" class="card metric">
       <h3><component :is="icon" :size="18" aria-hidden="true" /> {{ fieldLabels[id] }}</h3>
       <p class="metric-number">{{ readings[id]?.value ?? '—' }} <small>{{ fieldUnits[id] }}</small></p>
-      <span>{{ readings[id] ? originLabels[readings[id].origin] : clueOf(id) ? '待实车验证' : '暂不支持' }}</span>
+      <span>{{ readings[id] ? readingLabel(readings[id]) : clueOf(id) ? '待实车验证' : '暂不支持' }}</span>
     </section>
   </div>
 
@@ -70,7 +71,7 @@ const clueOf = (id: FieldId) => registerClues.find((item) => item.field === id)
         </div>
         <div class="reading-value">
           <strong>{{ readings[field]?.value ?? '—' }} {{ readings[field]?.value != null ? fieldUnits[field] : '' }}</strong>
-          <span>{{ readings[field] ? originLabels[readings[field].origin] : clueOf(field) ? '待实车验证' : '暂不支持' }}</span>
+          <span>{{ readings[field] ? readingLabel(readings[field]) : clueOf(field) ? '待实车验证' : '暂不支持' }}</span>
           <time v-if="readings[field]?.time" :datetime="readings[field]?.time">{{ new Date(readings[field]!.time).toLocaleTimeString('zh-CN', { hour12: false }) }}</time>
         </div>
         <details v-if="readings[field]?.raw || readings[field]?.detail" class="reading-raw">

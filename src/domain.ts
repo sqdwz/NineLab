@@ -12,6 +12,7 @@ export interface Reading {
   time: string
   raw?: string
   detail?: string
+  provisional?: boolean
 }
 
 export type Readings = Partial<Record<FieldId, Reading>>
@@ -63,4 +64,8 @@ export const fieldUnits: Partial<Record<FieldId, string>> = {
 export const originLabels: Record<Origin, string> = {
   live: '设备实读', manual: '手动录入', calculated: '计算值', demo: '演示值',
   candidate: '待验证', failed: '读取失败', unsupported: '暂不支持',
+}
+
+export function readingLabel(reading: Reading) {
+  return reading.provisional ? '实读 · 含义待核验' : originLabels[reading.origin]
 }

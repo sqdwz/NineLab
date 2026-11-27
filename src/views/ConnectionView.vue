@@ -2,17 +2,26 @@
 import { computed } from 'vue'
 import { Bluetooth, BluetoothConnected, FlaskConical } from '@lucide/vue'
 import ConnectionGuide from '../components/ConnectionGuide.vue'
+import VehicleAuthentication from '../components/VehicleAuthentication.vue'
 import type { detectCapabilities } from '../bluetooth/capabilities'
-import { connectionLabels } from '../stores/connection'
+import { connectionLabels, isAuthorizing } from '../stores/connection'
 import type { createConnection } from '../stores/connection'
 
 const props = defineProps<{
   capabilities: ReturnType<typeof detectCapabilities>
   connection: ReturnType<typeof createConnection>['data']
   demo: boolean
+  pairingKey: () => string
 }>()
-const emit = defineEmits<{ connect: [broad: boolean]; retry: []; disconnect: []; demo: []; read: [] }>()
+const emit = defineEmits<{
+  connect: [broad: boolean]; retry: []; disconnect: []; demo: []; read: []; authenticate: [key?: string]; pair: []
+}>()
 const connected = computed(() => props.connection.state === 'connected' || props.connection.state === 'reading')
+const authorizing = computed(() => isAuthorizing(props.connection.auth))
+const authenticated = computed(() => props.connection.auth === 'ready')
+const canRead = computed(() => authenticated.value || props.connection.standardAvailable)
+const status = computed(() => props.demo ? '演示模式' : authorizing.value ? '车辆认证中' :
+  authenticated.value && props.connection.state === 'connected' ? '车辆已认证' : connectionLabels[props.connection.state])
 const connecting = computed(() => props.connection.state === 'searching' || props.connection.state === 'connecting')
 const browserHelp = computed(() => {
   if (props.capabilities.ios) return '在 Bluefy 中打开此页的 HTTPS 地址。'
@@ -31,7 +40,7 @@ const bluefyUrl = 'https://apps.apple.com/cn/app/bluefy-web-ble-browser/id149282
     <div class="section-top">
       <span class="icon-box"><Bluetooth :size="24" aria-hidden="true" /></span>
       <span class="pill" :class="demo ? 'amber' : connected ? 'green' : ''" aria-live="polite">
-        <span class="dot"></span>{{ demo ? '演示模式' : connectionLabels[connection.state] }}
+        <span class="dot"></span>{{ status }}
       </span>
     </div>
     <h3 id="ble-title">{{ demo ? 'NineLab 演示台' : connection.selected ? connection.name : '本机蓝牙' }}</h3>
@@ -44,10 +53,10 @@ const bluefyUrl = 'https://apps.apple.com/cn/app/bluefy-web-ble-browser/id149282
     <p v-if="!demo && connection.message" class="notice" role="status">{{ connection.message }}</p>
     <div class="button-row main-actions">
       <button v-if="demo" type="button" class="button primary" @click="emit('read')">查看演示读数</button>
-      <button v-else-if="connected" type="button" class="button primary" @click="emit('read')">
-        <BluetoothConnected :size="19" aria-hidden="true" /> 查看标准字段
+      <button v-else-if="connected && canRead" type="button" class="button primary" :disabled="authorizing" @click="emit('read')">
+        <BluetoothConnected :size="19" aria-hidden="true" /> {{ authenticated ? '读取车辆数据' : '查看标准字段' }}
       </button>
-      <button v-else-if="capabilities.ready" type="button" class="button primary" :disabled="connecting" @click="emit('connect', false)">
+      <button v-else-if="capabilities.ready && !connected" type="button" class="button primary" :disabled="connecting" @click="emit('connect', false)">
         <Bluetooth :size="19" aria-hidden="true" />
         {{ connection.state === 'searching' ? '请在系统列表选设备' : connection.state === 'connecting' ? '正在连接…' : '搜索九号设备' }}
       </button>
@@ -65,6 +74,10 @@ const bluefyUrl = 'https://apps.apple.com/cn/app/bluefy-web-ble-browser/id149282
       <summary>找不到车辆？</summary>
       <button type="button" class="button secondary" @click="emit('connect', true)">显示附近 BLE 设备</button>
     </details>
-    <ConnectionGuide :active="demo || connected ? 'read' : connecting ? 'connect' : 'prepare'" />
+    <VehicleAuthentication v-if="!demo && (connection.bfgAvailable || connection.generatedKeyAvailable)"
+      :available="connection.bfgAvailable && connected" :state="connection.auth" :message="connection.authMessage"
+      :has-generated-key="connection.generatedKeyAvailable" :can-start="connection.state === 'connected' && !authorizing"
+      :reveal-key="pairingKey" @authenticate="(key) => emit('authenticate', key)" @pair="emit('pair')" />
+    <ConnectionGuide :active="demo || (connected && canRead) ? 'read' : connecting || connected ? 'connect' : 'prepare'" />
   </section>
 </template>

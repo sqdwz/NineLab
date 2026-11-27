@@ -1,4 +1,7 @@
 import { expect, test } from '@playwright/test'
+import { BfgCipher, bfgBootstrapMask, joinBytes, sealBootstrap } from '../src/protocol/bfg-crypto'
+import { parseBfgKey } from '../src/protocol/bfg-session'
+import { registerClues } from '../src/protocol/registers'
 
 test('四个区块同页滚动，导航和返回键可定位', async ({ page, isMobile }) => {
   await page.goto('/')
@@ -170,4 +173,93 @@ test('连接引导在原处展开，尊重减少动效设置', async ({ page, is
   await expect(page.getByRole('heading', { name: '电池读取' })).toBeFocused()
   await expect(page.getByRole('progressbar')).toHaveAttribute('value', '61')
   await expect(guide.getByRole('listitem').last()).toHaveAttribute('aria-current', 'step')
+})
+
+test('配对面板支持已有密钥，鉴权后通过分片 GATT 读取车辆数据', async ({ page }) => {
+  const source = new TextEncoder().encode('NINELAB_TEST_01')
+  const name = new TextDecoder().decode(source)
+  const key = '00112233445566778899aabbccddeeff'
+  const serial = new TextEncoder().encode('SIMULATED12345')
+  const challenge = Uint8Array.from({ length: 16 }, (_, index) => index + 1)
+  const mask = await bfgBootstrapMask(name)
+  const cipher = await BfgCipher.create(parseBfgKey(key), challenge)
+  const reply = (module: number, command: number, index: number, data: Uint8Array) =>
+    joinBytes(Uint8Array.of(0x5a, 0xa5, data.length, module, 0x3e, command, index), data)
+  const packet = (module: number, command: number, index: number, data: Uint8Array) =>
+    joinBytes(Uint8Array.of(0x5a, 0xa5, data.length, 0x3e, module, command, index), data)
+  const hex = (bytes: Uint8Array) => Buffer.from(bytes).toString('hex')
+  const lookup: Record<string, string> = {}
+  const hello = packet(4, 0x5b, 0, new Uint8Array())
+  lookup[hex(sealBootstrap(hello, mask))] = hex(sealBootstrap(reply(4, 0x5b, 1, joinBytes(challenge, serial)), mask))
+  lookup[hex(await cipher.seal(2, packet(4, 0x5d, 0, serial)))] =
+    hex(await cipher.seal(3, reply(4, 0x5d, 1, new Uint8Array())))
+  for (const [index, item] of registerClues.entries()) {
+    const counter = index * 2 + 4
+    const data = item.width === 1 ? Uint8Array.of(63) : Uint8Array.of(63, 0)
+    lookup[hex(await cipher.seal(counter, packet(item.module, 1, item.register, Uint8Array.of(item.width))))] =
+      hex(await cipher.seal(counter + 1, reply(item.module, 4, item.register, data)))
+  }
+  await page.addInitScript(({ name, lookup }) => {
+    const uart = '6e400001-b5a3-f393-e0a9-e50e24dcca9e'
+    const rx = Object.assign(new EventTarget(), {
+      uuid: uart.replace('0001', '0003'), properties: { notify: true },
+      value: undefined as DataView | undefined,
+      startNotifications: async () => rx,
+    })
+    let assembling: number[] = []
+    const tx = {
+      uuid: uart.replace('0001', '0002'), properties: { write: true },
+      writeValueWithResponse: async (chunk: Uint8Array) => {
+        if (chunk.length > 20) throw new Error('BLE mock accepts fragments of up to 20 bytes')
+        assembling.push(...chunk)
+        if (assembling.length < 3 || assembling.length < assembling[2]! + 13) return
+        const encrypted = lookup[assembling.map((value) => value.toString(16).padStart(2, '0')).join('')]
+        assembling = []
+        if (!encrypted) throw new Error('Unexpected authenticated request')
+        const response = Uint8Array.from(encrypted.match(/../g)!, (pair) => Number.parseInt(pair, 16))
+        for (const part of [response.slice(0, 9), response.slice(9)]) {
+          rx.value = new DataView(part.buffer)
+          rx.dispatchEvent(new Event('characteristicvaluechanged'))
+        }
+      },
+    }
+    const service = {
+      uuid: uart, getCharacteristics: async () => [tx, rx],
+      getCharacteristic: async (uuid: string) => uuid === tx.uuid ? tx : rx,
+    }
+    const gatt = {
+      connected: false,
+      connect: async () => { gatt.connected = true; return gatt },
+      disconnect: () => { gatt.connected = false },
+      getPrimaryService: async (uuid: string) => {
+        if (uuid !== uart) throw new DOMException('Service not present', 'NotFoundError')
+        return service
+      },
+    }
+    Object.defineProperty(navigator, 'bluetooth', {
+      configurable: true,
+      value: { requestDevice: async () => Object.assign(new EventTarget(), { name, gatt }) },
+    })
+  }, { name, lookup })
+
+  await page.goto('/')
+  await page.getByRole('button', { name: '搜索九号设备' }).click()
+  const auth = page.getByRole('region', { name: '车辆配对与认证' })
+  await expect(auth).toBeVisible()
+  await expect(page.getByRole('button', { name: '查看标准字段' })).toHaveCount(0)
+  await auth.getByText('生成临时密钥', { exact: true }).click()
+  await expect(auth.getByRole('button', { name: '生成密钥并配对' })).toBeDisabled()
+  const field = auth.getByLabel('已有配对密钥')
+  await field.fill('invalid')
+  await auth.getByRole('button', { name: '使用密钥认证' }).click()
+  await expect(auth.getByRole('status')).toContainText('32 或 64 位')
+  await field.fill(key)
+  await auth.getByRole('button', { name: '使用密钥认证' }).click()
+  await expect(auth.getByRole('status')).toContainText('已认证')
+  await page.getByRole('button', { name: '读取车辆数据' }).click()
+  await expect(page.getByRole('progressbar', { name: '计量模块 SOC' })).toHaveAttribute('value', '63')
+  await expect(page.getByText('实读 · 含义待核验').first()).toBeVisible()
+  const logged = await page.locator('#diagnostic .log-output').innerText()
+  expect(logged).not.toContain(key)
+  expect(logged).not.toContain('SIMULATED12345')
 })

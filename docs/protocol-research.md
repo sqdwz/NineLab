@@ -4,12 +4,19 @@
 
 DongAier 的 [`6012db7`](https://github.com/DongAier/Ninebot-BFG/commit/6012db7) 是核对版本。README 只有项目摘要。index、CSS 和图片负责界面；app.js 负责操作和读数单位；protocol.js 管理 GATT、认证、候选请求、回读和备份检查；crypto.js 处理通信加密。提交历史包含初始提交、导入网页和更新交互。源码公开，但仓库和在线页面都未给出可供复制或分发源码的明确许可。
 
-[在线页面](https://dongaier.github.io/Ninebot-BFG/) 实际展示了临时配对的确认事项。上游使用已存在的车辆会话或需要车端物理确认的配对流程，其页面明确提示后者可能影响官方旧凭据。参考源中区分 GATT 连接、车辆认证和车辆参数查询，已认证会话另有消息认证码及计数器校验。NineLab 当前只进入标准 GATT 路径，专有认证、密钥协商和占用官方配对凭据的流程均待实车验证。
+[在线页面](https://dongaier.github.io/Ninebot-BFG/) 实际展示了临时配对的确认事项。上游使用已存在的车辆会话或需要车端物理确认的配对流程，其页面明确提示后者可能影响官方旧凭据。参考源中区分 GATT 连接、车辆认证和车辆参数查询，已认证会话另有消息认证码及计数器校验。NineLab 现在实现 BFG Encryption2 的配对、密钥认证和只读查询。实现与 Ninebot-BFG、MIT 的 ninebotcal 浏览器实现及 Apache-2.0 的 scootscoot 只读客户端交叉核对，并使用独立编写的代码和合成测试向量。 [BFG 参考](https://github.com/DongAier/Ninebot-BFG) · [ninebotcal 参考](https://github.com/yy1142274323/ninebotcal/tree/f56037e/web) · [scootscoot 参考](https://github.com/andyshinn/scootscoot/tree/a0525f2)
+
+## 配对与认证
+
+- BFG-NUS 在蓝牙连接后显示独立的车辆认证状态。可使用 16 字节已有密钥，或输入以 32 字节形式保存的 BFG 配对材料。只使用协议定义的密钥部分。
+- 新配对先由用户确认自己有权操作车辆，随后检查车端状态。车端已有密钥时，流程转到已有密钥认证。车端未保存密钥时，按该参考 BFG 协议生成随机材料，等待车端确认与后续认证结果。
+- 九号 BFG 读取只使用内置字段表。响应按消息认证码、递增计数器、来源模块、寄存器和长度核对。车辆返回的字段标为「实读 · 含义待核验」。单个字段超时会跳过该字段，连接中断会丢弃当前认证。
+- 密钥、握手帧、设备序列号和验证材料均不写入日志与备份。用户可按需从本页查看新生成的密钥。配对操作不会在连接、轮询或重连时自动执行。
 
 ## 传输与响应
 
-- 参考源使用 Nordic UART Service `6e400001-b5a3-f393-e0a9-e50e24dcca9e`。通常由中心向 `6e400002-…` 发送，并接收 `6e400003-…` 通知。另有现代滑板车实现公开名称空间不同的 Segway UART UUID。两者都作为候选发现服务。
-- 观察公开实现时发现，固定 20 字节写分片与完整写入各有实现。iOS 需要用本车验证 MTU、写属性和通知边界。NineLab 的专有明文重组用模拟样本测试。
+- 参考源使用 Nordic UART Service `6e400001-b5a3-f393-e0a9-e50e24dcca9e`。通常由中心向 `6e400002-…` 发送，并接收 `6e400003-…` 通知。另有现代滑板车实现公开名称空间不同的 Segway UART UUID。两者都作为候选发现服务。配对目前启用经典 NUS 下的 BFG 版本。
+- 观察公开实现时发现，固定 20 字节写分片与完整写入各有实现。NineLab 用 20 字节分片，并按加密帧长度重组通知。iOS 的实机传输和各车型行为仍需验证。
 - 参考 BFG 命令把只读查询和配置修改分开。已解密的读取响应包含帧头、长度、源模块、目的模块、响应类型、寄存器和数据。在明文解析层检查长度、方向、响应类型及候选字段宽度。此处的“格式通过”只反映明文结构；线上完整性须由经验证的加密层提供。
 - 标准 Bluetooth SIG Battery Service `180F / 2A19` 直接给出 0–100 的百分数。Device Information `180A / 2A24, 2A25, 2A26` 可读取设备型号、序列号和固件版本，语义限于公开这些字段的 BLE 设备。[Battery Service](https://www.bluetooth.com/specifications/specs/battery-service/)
 - Web Bluetooth 通常只枚举站点获准访问的服务。列表中的“可见服务”应与原生 GATT 对照工具交叉核查。
