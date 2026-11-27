@@ -20,6 +20,7 @@ export const registerClues: readonly RegisterClue[] = [
   { field: 'meterSoc', module: 0x10, register: 2, width: 1, scale: 1, status: 'candidate' },
   { field: 'configuredCapacity', module: 0x10, register: 0x1c, width: 2, scale: 0.001, status: 'candidate' },
   { field: 'firmwareDashboard', module: 1, register: 0x1a, width: 2, scale: null, format: 'firmware', status: 'candidate' },
+  { field: 'firmwareColor', module: 1, register: 0xd1, width: 2, scale: null, format: 'firmware', status: 'candidate' },
   { field: 'firmwareMeter', module: 1, register: 0x3d, width: 2, scale: null, format: 'firmware', status: 'candidate' },
   { field: 'firmwareCenter', module: 9, register: 2, width: 2, scale: null, format: 'firmware', status: 'candidate' },
 ]

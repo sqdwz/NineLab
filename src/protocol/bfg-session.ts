@@ -167,7 +167,8 @@ export class BfgSession {
       challenge = hello.slice(7, 23)
       serial = hello.slice(23, 37)
       hello.fill(0)
-      if (!/^[A-Za-z0-9]{14}$/.test(new TextDecoder().decode(serial))) throw new BfgError('车辆身份响应格式不符。')
+      const vehicleSerial = new TextDecoder().decode(serial)
+      if (!/^[A-Za-z0-9]{14}$/.test(vehicleSerial)) throw new BfgError('车辆身份响应格式不符。')
 
       if (action.kind === 'pair') {
         if (hasKey) throw new StoredBfgKey()
@@ -203,6 +204,7 @@ export class BfgSession {
       result.fill(0)
       if (!accepted) throw new BfgError('车辆拒绝了密钥认证。')
       this.authorized = true
+      return vehicleSerial
     } catch (error) {
       this.close()
       throw error
@@ -221,24 +223,27 @@ export class BfgSession {
     let successes = 0
     for (const item of registerClues) {
       if (this.unavailable.has(item.field)) continue
+      const address = hexNumber(item.module) + ' / ' + hexNumber(item.register)
+      const source = '九号 BFG · ' + address
       try {
         const reply = await this.exchange(request(item.module, readCommand, item.register, Uint8Array.of(item.width)),
           (plain) => matched(plain, item.module, 4) && plain[6] === item.register && plain[2] === item.width,
           { cipher, timeout: 1800 })
         const { reading } = interpretReply(decodeReply(reply), new Date().toISOString())
         if ((item.field === 'dashboardSoc' || item.field === 'meterSoc') && Number(reading.value) > 100) {
-          this.unavailable.add(item.field)
+          publish(item.field, { value: null, time: reading.time, source, origin: 'failed', detail: '电量响应超出可用范围' })
           trace('BFG 电量响应超出可用范围。')
           continue
         }
-        publish(item.field, { ...reading, origin: 'live', source: '九号 BFG · ' + reading.source, provisional: true,
+        publish(item.field, { ...reading, origin: 'live', source, provisional: true,
           detail: '已校验车辆响应，字段含义仍需与对应车型核对。' })
-        trace('BFG 已读取 ' + reading.source)
+        trace('BFG 已读取 ' + address)
         successes++
       } catch (error) {
         if (!(error instanceof DOMException) || error.name !== 'TimeoutError') throw error
         this.unavailable.add(item.field)
-        trace('BFG 读取无回应 ' + hexNumber(item.module) + ' / ' + hexNumber(item.register))
+        publish(item.field, { value: null, time: new Date().toISOString(), source, origin: 'failed', detail: '车辆未应答此字段' })
+        trace('BFG 读取无回应 ' + address)
       }
     }
     return successes

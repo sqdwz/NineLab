@@ -186,8 +186,11 @@ async function calibrate(target: MeterParameters, restore?: Backup) {
 }
 function exportReadings() {
   const rows = (Object.entries(readings.value) as Array<[FieldId, NonNullable<typeof readings.value[FieldId]>]>)
-    .map(([id, reading]) => [fieldLabels[id], id === 'serial' && !demo.value ? '已隐藏' : reading.value,
-      fieldUnits[id], readingLabel(reading), reading.source, reading.raw, reading.time])
+    .map(([id, reading]) => {
+      const hideSerial = id === 'serial' && !demo.value
+      return [fieldLabels[id], hideSerial ? '已隐藏' : reading.value, fieldUnits[id],
+        readingLabel(reading), reading.source, hideSerial ? undefined : reading.raw, reading.time]
+    })
   void exportFile(demo.value ? 'ninelab-demo-readings.csv' : 'ninelab-readings.csv',
     csv([['字段', '结果', '单位', '状态', '来源', '原始数据', '读取时间'], ...rows]), 'text/csv;charset=utf-8')
 }

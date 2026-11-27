@@ -69,8 +69,9 @@ function mockBfg(options: { stored: boolean; reject?: boolean; missing?: boolean
         }
         if (plain[5] !== 1) throw new Error('unexpected operation after auth')
         if (options.missing && plain[4] === 1 && plain[6] === 0x44) return
-        const data = plain[4] === 1 && plain[6] === 0xb1 ? [0xdc, 0x1c] :
-          plain[7] === 1 ? [56] : [56, 0]
+        let data = plain[7] === 1 ? [56] : [56, 0]
+        if (plain[4] === 1 && plain[6] === 0xb1) data = [0xdc, 0x1c]
+        if (plain[4] === 1 && plain[6] === 0xd1) data = [0x64, 0x02]
         deliver(await cipher.seal(counter + 1, response(plain[4]!, 4, plain[6]!, Uint8Array.from(data))))
       },
       close() { notificationsClosed = true },
@@ -137,12 +138,16 @@ describe('车辆配对和只读会话', () => {
     await connection.read()
     expect(connection.data.readings.voltage).toMatchObject({ value: 73.88, origin: 'live' })
     expect(connection.data.readings.meterSoc?.value).toBe(56)
+    expect(connection.data.readings.firmwareColor?.value).toBe('2.6.4')
+    expect(connection.data.readings.serial).toMatchObject({ value: 'SIMULATED12345', origin: 'live' })
+    expect(connection.data.readings.serial?.raw).toBeUndefined()
     expect(commands.slice(0, 3)).toEqual([0x5b, 0x5c, 0x5d])
     expect(new Set(commands.slice(3))).toEqual(new Set([1]))
     const serialized = JSON.stringify([connection.data, log.mock.calls])
     expect(serialized).not.toContain(key)
-    expect(serialized).not.toContain('SIMULATED12345')
+    expect(JSON.stringify(log.mock.calls)).not.toContain('SIMULATED12345')
     connection.disconnect()
+    expect(connection.data.readings.serial).toBeUndefined()
     connection.forgetKey()
     expect(connection.revealKey()).toBe('')
   })
@@ -164,6 +169,7 @@ describe('车辆配对和只读会话', () => {
     await connection.connect('ninebot')
     await connection.authorize({ key: 'abcdefabcdefabcdefabcdefabcdefab' })
     expect(connection.data.auth).toBe('failed')
+    expect(connection.data.readings.serial).toBeUndefined()
     expect(closed()).toBe(true)
     expect(commands).toEqual([0x5b])
     expect(connection.revealKey()).toBe('')
@@ -197,15 +203,21 @@ describe('车辆配对和只读会话', () => {
   })
 
   it('一个字段无响应仍读取其他字段，并跳过本会话已超时的字段', async () => {
-    const { connection, commands } = mockBfg({ stored: true, missing: true })
+    const device = { stored: true, missing: false }
+    const { connection, commands } = mockBfg(device)
     await connection.connect('ninebot')
     await connection.authorize({ key: initialKey })
+    const beforeReading = commands.length
+    await connection.read()
+    const fieldCount = commands.length - beforeReading
+    expect(connection.data.readings.remainingCapacity).toMatchObject({ value: 0.056, origin: 'live' })
+    device.missing = true
     await connection.read()
     expect(connection.data.auth).toBe('ready')
-    expect(connection.data.readings.remainingCapacity).toBeUndefined()
-    expect(connection.data.readings.voltage?.value).toBe(73.88)
+    expect(connection.data.readings.remainingCapacity).toMatchObject({ value: null, origin: 'failed' })
+    expect(connection.data.readings.firmwareColor?.value).toBe('2.6.4')
     const previousCount = commands.length
     await connection.read()
-    expect(commands.length - previousCount).toBe(previousCount - 3)
+    expect(commands.length - previousCount).toBe(fieldCount - 1)
   })
 })

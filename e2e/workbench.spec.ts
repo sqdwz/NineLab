@@ -236,11 +236,13 @@ test('直接打开 BFG UART 并用已有密钥通过分片 GATT 读取车辆数�
     hex(await cipher.seal(3, reply(4, 0x5d, 1, new Uint8Array())))
   for (const [index, item] of registerClues.entries()) {
     const counter = index * 2 + 4
-    const data = item.width === 1 ? Uint8Array.of(63) : Uint8Array.of(63, 0)
+    const data = item.field === 'firmwareColor' ? Uint8Array.of(0x64, 0x02) :
+      item.width === 1 ? Uint8Array.of(63) : Uint8Array.of(63, 0)
     lookup[hex(await cipher.seal(counter, packet(item.module, 1, item.register, Uint8Array.of(item.width))))] =
       hex(await cipher.seal(counter + 1, reply(item.module, 4, item.register, data)))
   }
   await page.addInitScript(({ name, lookup, isMobile }) => {
+    Object.defineProperty(navigator, 'canShare', { value: () => false })
     const uart = '6e400001-b5a3-f393-e0a9-e50e24dcca9e'
     const rx = Object.assign(new EventTarget(), {
       uuid: uart.replace('0001', '0003'), properties: { notify: true },
@@ -333,6 +335,17 @@ test('直接打开 BFG UART 并用已有密钥通过分片 GATT 读取车辆数�
   await page.getByRole('button', { name: '读取车辆数据' }).click()
   await expect(page.getByRole('progressbar', { name: '计量模块 SOC' })).toHaveAttribute('value', '63')
   await expect(page.getByText('实读 · 含义待核验').first()).toBeVisible()
+  const details = page.getByRole('region', { name: '详细参数' })
+  await details.getByText('查看全部字段', { exact: true }).click()
+  await expect(details.locator('.reading-row').filter({ hasText: '彩屏固件' })).toContainText('2.6.4')
+  await expect(details.getByText('SIMULATED12345', { exact: true })).toBeVisible()
+  const [download] = await Promise.all([
+    page.waitForEvent('download'),
+    details.getByRole('button', { name: '导出 CSV' }).click(),
+  ])
+  const csv = await readFile((await download.path())!, 'utf8')
+  expect(csv).toContain('已隐藏')
+  expect(csv).not.toContain('SIMULATED12345')
   const logged = await page.locator('#diagnostic .log-output').innerText()
   expect(logged).not.toContain(key)
   expect(logged).not.toContain('SIMULATED12345')

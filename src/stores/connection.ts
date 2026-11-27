@@ -211,7 +211,7 @@ export function createConnection(
     data.auth = 'checking'
     log('system', '开始 BFG 车辆认证')
     try {
-      await withTimeout(session.authorize(transport.name, key ? { kind: 'existing', key } : {
+      const serial = await withTimeout(session.authorize(transport.name, key ? { kind: 'existing', key } : {
         kind: 'pair',
         onKey: (value) => {
           if (bfg !== session || ticket !== generation) {
@@ -225,6 +225,7 @@ export function createConnection(
         if (bfg === session && ticket === generation) data.auth = stage
       }), 80000, '车辆认证超时。')
       assertActive(ticket)
+      setReading('serial', { value: serial, time: new Date().toISOString(), origin: 'live', source: '九号 BFG · 车辆身份' })
       data.auth = 'ready'
       data.message = ''
       log('system', 'BFG 车辆认证成功')
@@ -261,6 +262,7 @@ export function createConnection(
         assertActive(ticket)
       }
       for (const { field, service, characteristic } of standardFields) {
+        if (field === 'serial' && data.auth === 'ready') continue
         const properties = data.services.find((group) => group.uuid === service)
           ?.characteristics.find((item) => item.uuid === characteristic)?.properties
         const started = performance.now()
@@ -315,7 +317,7 @@ export function createConnection(
       }
       data.message = successes ? '车辆读数已更新。' : data.bfgAvailable && data.auth !== 'ready'
         ? '请先在连接区完成车辆配对或密钥认证。'
-        : '此设备未返回可用字段，可导出 GATT 发现记录。'
+        : '未读到新的车辆参数，可查看通信诊断。'
     } catch (error) {
       fail(ticket, error instanceof DOMException && error.name === 'TimeoutError'
         ? error.message + '，已结束本次连接。' : error instanceof BfgError

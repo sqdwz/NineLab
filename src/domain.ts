@@ -1,4 +1,4 @@
-export type FieldId = 'model' | 'serial' | 'firmwareDashboard' | 'firmwareCenter' | 'firmwareMeter'
+export type FieldId = 'model' | 'serial' | 'firmwareDashboard' | 'firmwareColor' | 'firmwareCenter' | 'firmwareMeter'
   | 'batteryType' | 'voltage' | 'current' | 'power' | 'temperature' | 'dashboardSoc' | 'meterSoc'
   | 'remainingCapacity' | 'configuredCapacity' | 'profile' | 'dashboardEnergy' | 'dashboardConfig'
   | 'standardSoc' | 'bleFirmware'
@@ -48,7 +48,7 @@ export interface VehicleIdentity {
 }
 
 export const fieldLabels: Record<FieldId, string> = {
-  model: '车辆型号', serial: '设备序列号', firmwareDashboard: '仪表固件',
+  model: '车辆型号', serial: '设备序列号', firmwareDashboard: '仪表固件', firmwareColor: '彩屏固件',
   firmwareCenter: '中控固件', firmwareMeter: '计量模块固件', batteryType: '电池类型',
   voltage: '电池电压', current: '电池电流', power: '实时功率', temperature: '电池温度',
   dashboardSoc: '仪表 SOC', meterSoc: '计量模块 SOC', remainingCapacity: '剩余容量',
